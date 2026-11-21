@@ -14,3 +14,4 @@ dist/
 *.db
 signing-*.json
 !signing-*.example.json
+.venv-linux/

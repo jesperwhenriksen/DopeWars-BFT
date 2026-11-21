@@ -8,7 +8,36 @@ LIMIT=262144
 
 def tuples(v):return tuple(map(tuples,v)) if isinstance(v,list) else v
 
+LINUX_MAGIC=b'BFTK1'
+
+def _linux_key():
+    """Per-user 256-bit key in a 0600 file. Linux counterpart to DPAPI: other local users cannot read it."""
+    import os
+    from platform_paths import data_dir
+    path=data_dir()/'linux-protect.key'
+    if not path.exists():
+        path.parent.mkdir(parents=True,exist_ok=True)
+        try:os.chmod(path.parent,0o700)
+        except OSError:pass
+        fd=os.open(str(path),os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        with os.fdopen(fd,'wb') as f:f.write(secrets.token_bytes(32))
+    key=path.read_bytes()
+    if len(key)!=32:raise OSError('Nøglefilen til forbindelsesdata er beskadiget.')
+    return key
+
+def protect_linux(data, decrypt=False):
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    aes=AESGCM(_linux_key())
+    if not decrypt:
+        nonce=secrets.token_bytes(12);return LINUX_MAGIC+nonce+aes.encrypt(nonce,data,LINUX_MAGIC)
+    if not data.startswith(LINUX_MAGIC) or len(data)<len(LINUX_MAGIC)+12+16:raise OSError('Forbindelsesdata kunne ikke læses.')
+    nonce=data[len(LINUX_MAGIC):len(LINUX_MAGIC)+12]
+    try:return aes.decrypt(nonce,data[len(LINUX_MAGIC)+12:],LINUX_MAGIC)
+    except Exception as e:raise OSError('Forbindelsesdata kunne ikke dekrypteres (anden bruger eller beskadiget).') from e
+
 def protect(data, decrypt=False):
+    import sys
+    if sys.platform!='win32':return protect_linux(data,decrypt)
     import ctypes
     from ctypes import wintypes
     class Blob(ctypes.Structure):_fields_=[('n',wintypes.DWORD),('p',ctypes.POINTER(ctypes.c_char))]
@@ -191,7 +220,12 @@ class Server:
                 finally:self.slots.release()
         context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.minimum_version=ssl.TLSVersion.TLSv1_2
         temp=directory/'key-loading.pem'
-        try:temp.write_bytes(protect(private.read_bytes(),True));context.load_cert_chain(str(pem),str(temp))
+        try:
+            import os
+            temp.unlink(missing_ok=True)
+            fd=os.open(str(temp),os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)  # never world-readable, even briefly
+            with os.fdopen(fd,'wb') as f:f.write(protect(private.read_bytes(),True))
+            context.load_cert_chain(str(pem),str(temp))
         finally:temp.unlink(missing_ok=True)
         try:self.http=HTTP((bind,port),Handler)
         except Exception:self.session.db.close();raise
@@ -230,5 +264,8 @@ def rpc(invite,message):
 def addresses():
     values={'127.0.0.1'}
     try:values.update(x[4][0] for x in socket.getaddrinfo(socket.gethostname(),None,socket.AF_INET))
+    except OSError:pass
+    try:  # Linux often resolves the hostname to 127.0.1.1 only; a UDP connect reveals the real LAN address (sends nothing).
+        with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as s:s.connect(('192.0.2.1',9));values.add(s.getsockname()[0])
     except OSError:pass
     return sorted(values,key=lambda x:x.startswith('127.'))

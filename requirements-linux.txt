@@ -1,0 +1,3 @@
+# Linux: kør spillet fra kildekode. (requirements.txt er pinnet til Windows-bygget med PyInstaller.)
+PySide6-Essentials>=6.8.3
+cryptography>=46

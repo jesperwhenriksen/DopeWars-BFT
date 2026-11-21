@@ -29,6 +29,21 @@ game version. See [the Danish guide](LAES-MIG.txt) and
 Save games and scores are stored in `%LOCALAPPDATA%\BFT-DopeWars`.
 Remove the extracted game folder to uninstall; saved data remains.
 
+## Linux (fra kildekode)
+
+Kræver Python 3.10+ og Qt-systembiblioteker (Arch/CachyOS: `qt6-base`, `xcb-util-cursor`).
+
+```bash
+./run-linux.sh          # opretter .venv-linux ved første kørsel og starter spillet
+./run-linux.sh --test   # kører alle tests headless
+```
+
+Gemte spil og scores ligger i `~/.local/share/BFT-DopeWars` (eller `$XDG_DATA_HOME`,
+eller `$BFT_DATA_DIR`). LAN-forbindelsesdata krypteres med en nøglefil (`linux-protect.key`,
+rettigheder 0600) i samme mappe i stedet for Windows DPAPI. Åbn firewallen på privat net
+for TCP 47652 og UDP 47653 (fx `sudo ufw allow 47652/tcp && sudo ufw allow 47653/udp`,
+eller `firewall-cmd`). Linux og Windows kan spille LAN sammen, hvis versionen er den samme.
+
 ## Build and validation
 
 Install Python 3.12 x64 and run `./build.ps1` in PowerShell. See [BUILD.txt](BUILD.txt).

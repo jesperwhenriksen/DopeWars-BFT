@@ -53,7 +53,7 @@ HVIS LOBBYEN IKKE FINDES
 Værten bruger Vis reserveinvitation og Kopiér invitation. Gæsten vælger
 Kan du ikke finde spillet? Vis invitation, indsætter den og deltager.
 Værtens firewall skal tillade spillets TCP 47652 og UDP 47653 på privat net.
-Slå ikke firewallen fra. En administreret Windows-pc kan kræve hjælp fra IT.
+På Linux: åbn de to porte med fx ufw eller firewall-cmd (se README). Slå ikke firewallen fra. En administreret Windows-pc kan kræve hjælp fra IT.
 Wi-Fi-gæstenet, klientisolering og VLAN kan blokere kontakt på samme router.
 Automatisk søgning bruger IPv4 UDP-broadcast. Manuel invitation kan bruges,
 hvis broadcast alene er blokeret. Kun én værtsinstans pr. pc på standardporten.

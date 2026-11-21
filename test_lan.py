@@ -33,6 +33,15 @@ class LanTests(unittest.TestCase):
   self.start();self.call(self.a,'command',revision=0,action='finish',args={});v=self.call(self.b,'command',revision=0,action='wait',args={})['view'];self.assertFalse(v['complete']);v=self.call(self.b,'command',revision=1,action='finish',args={})['view'];self.assertTrue(v['complete'])
  def test_credentials_protected(self):
   p=self.directory/'client';v=dict(token=self.a,invite=self.invite);save_credentials(p,v);self.assertNotIn(self.a.encode(),p.read_bytes());self.assertEqual(load_credentials(p),v)
+ def test_linux_protection_key_is_private_and_tamper_detected(self):
+  import os,stat,sys
+  if sys.platform=='win32':self.skipTest('Windows uses DPAPI')
+  from lan import protect
+  from platform_paths import data_dir
+  blob=protect(b'hemmelig');self.assertNotIn(b'hemmelig',blob);self.assertEqual(protect(blob,True),b'hemmelig')
+  self.assertEqual(stat.S_IMODE(os.stat(data_dir()/'linux-protect.key').st_mode),0o600)
+  bad=bytearray(blob);bad[-1]^=1
+  with self.assertRaises(OSError):protect(bytes(bad),True)
  def test_save_failure_rolls_back(self):
   from unittest.mock import patch
   self.start();before=self.call(self.a,'poll')['view']['state']

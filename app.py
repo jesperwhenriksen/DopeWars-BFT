@@ -16,12 +16,13 @@ from game import (Game, RuleError, new_game, money, demand, VERSION, RULESET, DR
 from visuals import drug_icon
 
 APP_NAME = 'Dope Wars - BFT edition'
-DATA = Path(os.environ.get('BFT_DATA_DIR', str(Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'BFT-DopeWars')))
+from platform_paths import data_dir
+DATA = data_dir()
 SAVE = DATA / 'save.json'
 SCORES = DATA / 'highscores.json'
 
 STYLE = """
-* { font-family: "Segoe UI"; font-size: 13px; color: #202934; }
+* { font-family: "Segoe UI", "Noto Sans", "DejaVu Sans", "Liberation Sans", sans-serif; font-size: 13px; color: #202934; }
 QMainWindow, QDialog, QWidget#pageContent { background: #f0f1f3; }
 QLabel { background: transparent; }
 QLabel[role="muted"] { color: #616b77; }
@@ -850,7 +851,11 @@ def make_icon():
     p.setPen(Qt.PenStyle.NoPen)
     p.drawRoundedRect(4,4,120,120,28,28)
     p.setPen(QColor('white'))
-    p.setFont(QFont('Segoe UI',32,QFont.Weight.Bold))
+    font = QFont()
+    font.setFamilies(['Segoe UI', 'Noto Sans', 'DejaVu Sans', 'Liberation Sans'])
+    font.setPointSize(32)
+    font.setWeight(QFont.Weight.Bold)
+    p.setFont(font)
     p.drawText(pm.rect(),Qt.AlignmentFlag.AlignCenter,'BFT')
     p.end()
     return QIcon(pm)
@@ -877,6 +882,8 @@ def main():
 
 def load_fonts():
     # Also supports headless Qt image rendering on Windows.
+    if sys.platform != 'win32':
+        return  # Linux uses installed system fonts via the fallback list in STYLE.
     fonts = Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts'
     for name in ('segoeui.ttf', 'segoeuib.ttf', 'seguisb.ttf'):
         path = fonts / name
