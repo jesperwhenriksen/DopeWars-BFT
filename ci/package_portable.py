@@ -14,12 +14,16 @@ from game import VERSION
 
 def source_files():
     names = '''app.py game.py lan.py lan_ui.py lan_discovery.py visuals.py
-test_game.py test_lan.py test_release.py test_ui.py test_events.py
+test_game.py test_lan.py test_release.py test_ui.py test_events.py test_platform.py
+platform_paths.py run-linux.sh requirements-linux.txt
 release_acceptance.py smoke_test.py lan_acceptance.py installer_art.py
+simulate_balance.py benchmark_lan.py installer.iss
+DopeWars-BFT-SPEC.md SPEC-STATUS.md RELEASE-NOTES.txt BALANCE-RESULTATER.txt
+baseline-balance.json BALANCE-1.2.json LAN-YDELSE.json
 version_info.txt build.ps1 requirements.txt logo.png bft.ico
 LICENSE README.md BUILD.txt SIGNERING.txt LAES-MIG.txt LAN-LAES-MIG.txt
 THIRD-PARTY.txt OMRAADER-KILDER.txt PRIVACY.txt CODE-SIGNING-POLICY.txt
-.gitignore .github/workflows/windows.yml
+.gitignore .gitattributes .github/workflows/windows.yml
 ci/generate_brand.py ci/package_portable.py ci/verify-signed.ps1
 signpath/artifact-configuration.xml'''.split()
     for name in names:
@@ -41,7 +45,7 @@ def stage():
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, dest)
     for name in ('LICENSE', 'LAES-MIG.txt', 'LAN-LAES-MIG.txt', 'THIRD-PARTY.txt',
-                 'SIGNERING.txt', 'PRIVACY.txt', 'CODE-SIGNING-POLICY.txt'):
+                 'SIGNERING.txt', 'PRIVACY.txt', 'CODE-SIGNING-POLICY.txt', 'RELEASE-NOTES.txt'):
         shutil.copyfile(root / name, runtime / name)
     shutil.copytree(root / 'licenses', runtime / 'licenses', dirs_exist_ok=True)
     print(f'Staged runtime and {len(list(source_files()))} source files')
@@ -51,7 +55,7 @@ def archive(folder, label):
     folder = folder.resolve()
     if not (folder / 'DopeWars-BFT.exe').is_file() or not (folder / '_internal').is_dir():
         raise RuntimeError('Incomplete game folder')
-    dest = root / 'dist' / f'DopeWars-BFT-Spil-{VERSION}-{label}.zip'
+    dest = root / 'dist' / (f'DopeWars-BFT-{VERSION}.zip' if label == 'unsigned' else f'DopeWars-BFT-{VERSION}-signed.zip')
     prefix = f'DopeWars-BFT-{VERSION}'
     dest.parent.mkdir(parents=True, exist_ok=True)
     files = sorted(p for p in folder.rglob('*') if p.is_file())
