@@ -37,7 +37,13 @@ foreach ($bftCheck in @('release-self-test', 'self-test')) {
     $bftReport = Join-Path $PSScriptRoot ('dist/reports/packaged-' + $bftCheck + '.json')
     $bftExe = Join-Path $PSScriptRoot 'dist/DopeWars-BFT/DopeWars-BFT.exe'
     $bftProcess = Start-Process -FilePath $bftExe -ArgumentList @('--' + $bftCheck, ('"' + $bftReport + '"')) -WindowStyle Hidden -Wait -PassThru
-    if ($bftProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $bftReport)) { throw "Packaged $bftCheck failed." }
+    if ($bftProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $bftReport)) {
+        if (Test-Path -LiteralPath $bftReport) {
+            $bftFailed = Get-Content -LiteralPath $bftReport -Raw | ConvertFrom-Json
+            Write-Host $bftFailed.details
+        }
+        throw "Packaged $bftCheck failed (exit $($bftProcess.ExitCode))."
+    }
     $bftResult = Get-Content -LiteralPath $bftReport -Raw | ConvertFrom-Json
     if (-not $bftResult.passed) { throw "Packaged $bftCheck did not pass." }
 }
