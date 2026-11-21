@@ -137,12 +137,14 @@ class LanTests(unittest.TestCase):
 
  def test_LAN_3_5_NFR_8_eight_clients_and_ui_heartbeat(self):
   from benchmark_lan import measure
-  result=measure(seconds=1.1,keepalive=True,clients=8)
+  # Keep initial TLS handshakes in the sample, but measure long enough that
+  # eight connection starts do not dominate the 95th percentile of polling.
+  result=measure(seconds=5,keepalive=True,clients=8)
   self.assertEqual(result['errors'],[])
   self.assertEqual(result['commands_sent'],result['commands_committed'])
   self.assertGreater(result['commands_committed'],0)
   self.assertGreater(result['ui_heartbeats'],10)
-  self.assertLess(result['poll_p95_ms'],50)
+  self.assertLess(result['poll_p95_ms'],50,result)
 
 class SpecSessionTests(unittest.TestCase):
  def setUp(self):
