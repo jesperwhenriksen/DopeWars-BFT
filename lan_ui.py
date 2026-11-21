@@ -2,17 +2,18 @@
 import copy,secrets,threading,uuid,datetime
 from pathlib import Path
 from PySide6.QtCore import QObject,Signal,QTimer
-from PySide6.QtWidgets import QDialog,QVBoxLayout,QComboBox,QLineEdit,QMessageBox,QApplication
+from PySide6.QtWidgets import QDialog,QVBoxLayout,QComboBox,QLineEdit,QMessageBox,QApplication,QCheckBox,QSpinBox,QListWidget
 import app as ui
-from game import Game,money
-from lan_discovery import scan
-from lan import Server,rpc,addresses,save_credentials,load_credentials
+from game import Game,money,tip_cost
+from lan_discovery import scan,reconnect_invite
+from lan import Server,RpcClient,addresses,save_credentials,load_credentials
 
 class Connection(QObject):
     response=Signal(object);failure=Signal(str)
     def __init__(self,credentials,path,latest_path=None):
         super().__init__();self.c=credentials;self.path=Path(path);self.latest_path=latest_path
-        self.busy=False;self.online=False;self.view=None;self.closed=False
+        self.busy=False;self.online=False;self.view=None;self.closed=False;self.failures=0
+        self.client=RpcClient();self.last_event_id=0
         self.timer=QTimer(self);self.timer.timeout.connect(self.tick);self.timer.start(1000)
     def persist(self,latest=False):
         save_credentials(self.path,self.c)
@@ -28,26 +29,39 @@ class Connection(QObject):
         if self.busy or self.closed:return
         self.busy=True
         message=copy.deepcopy(dict(self.c.get('pending') or {'op':'poll'},token=self.c['token']))
+        if message['op']=='poll' and self.view and 'lobby_version' in self.view:
+            message['since']={k:self.view[k] for k in ('revision','lobby_version')}
         invite=self.c['invite']
         def work():
             try:
-                result=rpc(invite,message)
-                if not self.closed:self.response.emit((message,result))
+                address=invite
+                if self.failures>=3:
+                    address=reconnect_invite(self.c,scan()) or invite
+                if self.closed:return
+                result=self.client.call(address,message)
+                if result.get('ok') and self.c.get('session') and result.get('view',{}).get('session',self.c['session'])!=self.c['session']:
+                    raise ValueError('Værten svarer med en anden session. Forbindelsen er afvist.')
+                if not self.closed:self.response.emit((message,result,address if address!=invite else None))
             except Exception as e:
                 if not self.closed:self.failure.emit(str(e))
             finally:
-                if self.closed:self.busy=False
+                if self.closed:self.busy=False;self.client.close()
         threading.Thread(target=work,daemon=True).start()
     def stop(self):
         self.closed=True;self.timer.stop()
+        if not self.busy:self.client.close()
 
 class LanWindow(ui.Window):
     def __init__(self,controller,lobby):
         self.controller=controller;self.lobby=lobby
+        self.compare_day=0
         g=Game();g.s=controller.view['state']
         super().__init__(g)
         self.statusBar().showMessage('LAN · '+controller.view['name']+' · Eget dagtempo')
     def new(self,*a):QMessageBox.information(self,'LAN','Afslut denne session og genstart programmet for at oprette et nyt spil.')
+    def go(self,page):
+        super().go(page)
+        if page==6 and self.panel:self.panel.resize(720,720)
     def autosave(self):pass
     def present_day_events(self):
         if self.controller.c.get('pending') or not self.controller.online:return
@@ -62,17 +76,47 @@ class LanWindow(ui.Window):
         v=self.controller.view
         self.bl.addWidget(ui.label('Slutresultat' if v['complete'] else 'Foreløbig LAN-stilling','section'))
         self.bl.addWidget(ui.label('Score = bank + aktivernes salgsværdi − gæld. Spillerne har individuelt dagtempo.','muted'))
-        players=sorted(v['players'],key=lambda p:(not p.get('dnf',False),p['score']),reverse=True);rows=[];rank=0;previous=None
+        selector=QSpinBox();selector.setObjectName('compare_day');selector.setRange(0,v['days']);selector.setSpecialValueText('Aktuel stilling');selector.setValue(self.compare_day)
+        self.bl.addWidget(ui.row(ui.label('Sammenlign ved dag'),selector,1))
+        self.bl.addWidget(ui.label('Dagens seneste score. En spiller, der ikke har nået dagen, vises uden placering.','muted'))
+        def compared(p):
+            if not self.compare_day:return p.get('score')
+            return next((h['score'] for h in p.get('history',[]) if h['day']==self.compare_day),None)
+        players=sorted(v['players'],key=lambda p:(compared(p) is not None,not p.get('dnf',False),compared(p) if compared(p) is not None else 0),reverse=True);rows=[];rank=0;previous=None;eligible=0
         for i,p in enumerate(players):
-            if p['score']!=previous:rank=i+1
-            previous=p['score']
-            rows.append(['—' if p.get('dnf') else rank,p['name'],str(p['day'])+'/'+str(v['days']),money(p['bank']),money(p['score']),'Opgivet af vært' if p.get('dnf') else ('Afsluttet' if p['finished'] else ('Aktiv' if p['online'] else 'Offline'))])
-        self.bl.addWidget(ui.table(['#','Spiller','Dag','Bank','Score','Status'],rows,300))
+            value=compared(p)
+            if value is not None and not p.get('dnf'):
+                eligible+=1
+                if value!=previous:rank=eligible
+                previous=value
+            rows.append(['—' if p.get('dnf') or value is None else rank,p['name'],str(p['day'])+'/'+str(v['days']),money(value) if value is not None else 'Ikke nået','Opgivet af vært' if p.get('dnf') else ('Afsluttet' if p['finished'] else ('Aktiv' if p['online'] else 'Offline'))])
+        standings=ui.table(['#','Spiller','Egen dag','Score ved dag '+str(self.compare_day) if self.compare_day else 'Score','Status'],rows,34+30*len(rows));standings.setObjectName('lan_standings');self.bl.addWidget(standings)
+        def select_day(day):
+            self.compare_day=day;QTimer.singleShot(0,self.refresh_panel)
+        selector.valueChanged.connect(select_day)
+        self.bl.addWidget(ui.label('Seneste aktivitet','section'))
+        activity=QListWidget();activity.setObjectName('lan_activity');activity.setFixedHeight(min(132,max(64,24*len(v.get('events',[]))+8)))
+        for event in v.get('events',[]):activity.addItem(activity_text(event,v['players']))
+        if not activity.count():activity.addItem('Ingen fælles hændelser endnu.')
+        activity.scrollToBottom();self.bl.addWidget(activity)
+        if v.get('options',{}).get('allow_tips') and not self.g.s['finished']:
+            targets=QComboBox();targets.setObjectName('tip_target')
+            for p in v['players']:
+                if p['id']!=v['me'] and not p['finished'] and not p.get('dnf'):targets.addItem(p['name'],p['id'])
+            cost=tip_cost(self.g.s['black'])
+            tip=ui.button('Tip politiet · '+money(cost),lambda:self.confirm_tip(targets.currentData(),targets.currentText(),cost),'danger');tip.setObjectName('tip_button')
+            tip.setEnabled(targets.count()>0 and self.g.s['black']>=cost and self.g.s['day']>=self.g.s.get('tip_cooldown_until',0) and not self.g.s['police'])
+            self.bl.addWidget(ui.row(targets,tip))
+            self.bl.addWidget(ui.label('Anonymt · 5 af målets dage · mindst 500 kr. · 10 egne dages pause. Green card og våbenchance ændres ikke.','muted'))
+            if self.g.s['day']<self.g.s.get('tip_cooldown_until',0):self.bl.addWidget(ui.label('Du kan tippe igen på dag '+str(self.g.s['tip_cooldown_until'])+'.','muted'))
         if self.lobby.server:
             for p in v['players']:
                 if not p['finished'] and p['id']!=v['me']:
                     self.bl.addWidget(ui.button('Markér '+p['name']+' som opgivet…',lambda p=p:self.lobby.retire(p)))
         if not self.g.s['finished']:self.bl.addWidget(ui.button('Afslut mit spil',self.finish))
+    def confirm_tip(self,target,name,cost):
+        if target and QMessageBox.question(self,'Tip politiet',f'Send et anonymt tip om {name} for {money(cost)}? Målet får øget kontrolrisiko og sværere flugt i 5 af sine egne dage.')==QMessageBox.StandardButton.Yes:
+            self.act('tip',target=target)
     def closeEvent(self,event):
         text='Forlad midlertidigt? Din spiller gemmes og kan genforbindes.'
         if self.lobby.server:text='Luk værtsprogrammet? Alle mister forbindelsen, men sessionen er gemt og kan genoptages.'
@@ -103,15 +147,18 @@ class Lobby(QDialog):
         self.days=QComboBox()
         for d in (31,90,180,365):self.days.addItem(f'{d} dage',d)
         self.layout.addWidget(self.days)
+        self.allow_tips=QCheckBox('Tillad anonyme politi-tip');self.allow_tips.setObjectName('allow_tips');self.allow_tips.setChecked(False)
+        self.shared_market=QCheckBox('Samme marked for alle');self.shared_market.setObjectName('shared_market');self.shared_market.setChecked(True)
+        self.layout.addWidget(self.allow_tips);self.layout.addWidget(self.shared_market)
         self.layout.addWidget(ui.button('Opret ny LAN-lobby',self.host,'primary'))
         self.layout.addWidget(ui.label('Spil på dit lokalnet','section'))
         self.games=QComboBox();self.layout.addWidget(self.games)
         self.search_note=ui.label('Søger efter åbne lobbyer…','muted');self.layout.addWidget(self.search_note)
         self.join_found=ui.button('Deltag i valgt spil',self.join_discovered,'primary');self.join_found.setEnabled(False);self.layout.addWidget(self.join_found)
-        self.games.currentIndexChanged.connect(lambda:self.join_found.setEnabled(bool(self.games.currentData()) and self.games.currentData()['players']<8))
+        self.games.currentIndexChanged.connect(self.selected_game)
         self.layout.addWidget(ui.button('Søg igen',self.search))
         self.invite=QLineEdit();self.invite.setPlaceholderText('Reserve: indsæt invitation, hvis spillet ikke findes');self.invite.hide()
-        self.manual=ui.button('Deltag via invitation',self.join);self.manual.hide()
+        self.manual=ui.button('Deltag via invitation',lambda:self.join());self.manual.hide()
         self.layout.addWidget(ui.button('Kan du ikke finde spillet? Vis invitation',lambda:(self.invite.show(),self.manual.show())))
         self.layout.addWidget(self.invite);self.layout.addWidget(self.manual)
         self.browsing=True;QTimer.singleShot(0,self.search)
@@ -150,29 +197,33 @@ class Lobby(QDialog):
     def found(self,games):
         self.scan_busy=False
         if not self.browsing:return
+        games=[g for g in games if not g.get('started',False)]
         selected=self.games.currentData();sid=selected['session'] if selected else None
         self.games.blockSignals(True);self.games.clear()
-        for g in games:self.games.addItem(f"{g['name']} · {g['players']}/8 spillere · {g['days']} dage",g)
+        for g in games:self.games.addItem(f"{g['name']} · {g['players']}/8 spillere · {g['days']} dage · "+options_text(g.get('options',{})),g)
         for i,g in enumerate(games):
             if g['session']==sid:self.games.setCurrentIndex(i)
         self.games.blockSignals(False)
         selected=self.games.currentData();self.join_found.setEnabled(bool(selected) and selected['players']<8)
         self.search_note.setText('Vælg et spil og tryk Deltag.' if games else 'Ingen åbne spil fundet endnu. Værten skal oprette en lobby. Der søges automatisk igen.')
+    def selected_game(self):
+        game=self.games.currentData();self.join_found.setEnabled(bool(game) and game['players']<8)
+        if game:self.search_note.setText(options_text(game.get('options',{}))+' · Politi-tip kan påvirke andre spillere.' if game.get('options',{}).get('allow_tips') else options_text(game.get('options',{})))
     def join_discovered(self):
         if not self.name.text().strip():self.name.setFocus();return
         game=self.games.currentData()
-        if game:self.invite.setText(game['invite']);self.join()
+        if game:self.invite.setText(game['invite']);self.join(preview=False)
     def host(self):
         if not self.name.text().strip():return
         try:
             directory=ui.DATA/'LAN'/uuid.uuid4().hex
-            self.server=Server(directory,self.days.currentData(),name=self.name.text().strip()+"s lobby")
+            self.server=Server(directory,self.days.currentData(),name=self.name.text().strip()+"s lobby",options=dict(allow_tips=self.allow_tips.isChecked(),shared_market=self.shared_market.isChecked()))
             invitation=self.server.invite('127.0.0.1')
             self.begin(dict(invite=invitation,token=secrets.token_hex(32),name=self.name.text().strip(),directory=str(directory),pending=dict(op='join',owner=self.server.session.s['owner'],name=self.name.text().strip())))
         except Exception as e:QMessageBox.warning(self,'Kunne ikke være vært',str(e))
-    def join(self):
+    def join(self,preview=True):
         if not self.name.text().strip():return
-        self.begin(dict(invite=self.invite.text().strip(),token=secrets.token_hex(32),name=self.name.text().strip(),pending=dict(op='join',name=self.name.text().strip())))
+        self.begin(dict(invite=self.invite.text().strip(),token=secrets.token_hex(32),name=self.name.text().strip(),pending=dict(op='info' if preview else 'join',name=self.name.text().strip())))
     def resume(self):
         try:
             c=load_credentials(Path(self.saved.currentData()) if self.saved.count() else self.path)
@@ -205,7 +256,7 @@ class Lobby(QDialog):
         except Exception as e:QMessageBox.warning(self,'Forbindelse',str(e))
     def failed(self,c,error):
         if c is not self.controller or c.closed:return
-        c.busy=False;c.online=False;c.timer.setInterval(min(10000,c.timer.interval()*2))
+        c.busy=False;c.online=False;c.failures+=1;c.timer.setInterval(1000 if c.failures<=3 else min(10000,1000*2**min(c.failures-3,4)))
         text='Genforbinder… Kontrollér at værten kører. '+error[:160]
         if self.window:
             self.window.main.setEnabled(False)
@@ -227,8 +278,13 @@ class Lobby(QDialog):
         self.setup()
     def received(self,c,envelope):
         if c is not self.controller or c.closed:return
-        sent,response=envelope
-        c.busy=False;c.online=True;c.timer.setInterval(1000)
+        sent,response=envelope[:2];relocated=envelope[2] if len(envelope)>2 else None
+        was_offline=not c.online
+        c.busy=False;c.online=True;c.failures=0;c.timer.setInterval(1000)
+        if relocated:
+            c.c['invite']=relocated
+            try:c.persist(latest=True)
+            except OSError:self.failed(c,'Kunne ikke gemme værtens nye adresse.');return
         pending=c.c.get('pending')
         if pending and all(sent.get(k)==v for k,v in pending.items()):
             c.c.pop('pending',None)
@@ -247,6 +303,20 @@ class Lobby(QDialog):
             else:c.tick()
             return
         v=response['view']
+        if v.get('unchanged'):
+            if self.window:
+                self.window.main.setEnabled(not c.c.get('pending'))
+                if self.window.panel:self.window.panel.setEnabled(not c.c.get('pending'))
+                if was_offline or relocated:self.window.statusBar().showMessage('Værten er fundet igen · Forbundet' if relocated else 'LAN · Forbundet igen · Eget dagtempo')
+                if not c.c.get('pending'):QTimer.singleShot(0,self.window.present_day_events)
+            return
+        if v.get('preview'):
+            c.timer.stop();self.clear()
+            self.layout.addWidget(ui.label('Deltag i '+v['name'],'title'))
+            self.layout.addWidget(ui.label(str(v['days'])+' dage · '+options_text(v['options'])))
+            self.layout.addWidget(ui.label('Hvis tip er tilladt, kan andre spillere tippe politiet om dig. Afsenderen er anonym.'))
+            def confirm():c.timer.start(1000);c.send('join',name=c.c['name'])
+            self.layout.addWidget(ui.button('Deltag i lobbyen',confirm,'primary'));self.layout.addWidget(ui.button('Tilbage',self.cancel));return
         if v.get('left'):self.cancel();return
         old=c.view;c.view=v
         metadata=dict(session=v['session'],session_name=v['name'],days=v['days'],complete=v['complete'])
@@ -261,16 +331,21 @@ class Lobby(QDialog):
             if changed:
                 w.g.s=v['state'];w.last_notice=w.g.s['log'][0];w.render()
                 if w.panel and w.panel.isVisible():w.refresh_panel()
-            elif old and old['players']!=v['players'] and w.panel and w.panel.isVisible() and w.panel_page==6:w.refresh_panel()
+            elif old and (old['players']!=v['players'] or old.get('events')!=v.get('events')) and w.panel and w.panel.isVisible() and w.panel_page==6:w.refresh_panel()
             w.main.setEnabled(not c.c.get('pending'))
             if w.panel:w.panel.setEnabled(not c.c.get('pending'))
-            w.statusBar().showMessage('LAN · '+v['name']+' · Forbundet · '+('Alle er færdige' if v['complete'] else 'Eget dagtempo'))
+            recent=[e for e in v.get('events',[]) if e['id']>c.last_event_id]
+            if recent:c.last_event_id=recent[-1]['id']
+            status='Værten er fundet igen · Forbundet' if relocated else ('LAN · '+v['name']+' · '+('Alle er færdige' if v['complete'] else 'Forbundet · Eget dagtempo'))
+            if recent:status+=' · '+activity_text(recent[-1],v['players'])
+            w.statusBar().showMessage(status)
             if not c.c.get('pending'):
                 QTimer.singleShot(0,w.present_day_events)
             return
         if old==v:return
         self.clear();self.layout.addWidget(ui.label('Lobby · '+v['name'],'title'))
         self.layout.addWidget(ui.label(f"{v['days']} dage · Høje på Fyn · Eget dagtempo · {len(v['players'])}/8 spillere"))
+        self.layout.addWidget(ui.label(options_text(v.get('options',{})),'section'))
         if self.server:
             address=QComboBox();address.addItems(addresses())
             field=QLineEdit(self.server.invite(address.currentText()));field.setReadOnly(True)
@@ -294,6 +369,21 @@ class Lobby(QDialog):
         if self.controller:self.controller.stop()
         if self.server:self.server.close()
         event.accept()
+
+
+def options_text(options):
+    return 'Politi-tip: '+('til' if options.get('allow_tips') else 'fra')+' · Fælles marked: '+('til' if options.get('shared_market') else 'fra')
+
+
+def activity_text(event,players):
+    name=next((p['name'] for p in players if p['id']==event['player_id']),'En spiller')
+    kind=event['type'];data=event['data']
+    if kind=='finished':return name+' afsluttede med '+money(data['score'])
+    if kind=='milestone':return name+' har nået '+str(data['percent'])+' % af spillet'
+    if kind=='first_asset':return name+' købte sin første virksomhed'
+    if kind=='dnf':return name+' er markeret som opgivet (DNF)'
+    if kind=='tip':return 'Nogen har tippet politiet om '+name
+    return ''
 
 def choose_mode():
     d=QDialog();d.setWindowTitle(ui.APP_NAME);l=QVBoxLayout(d);d.resize(420,240)

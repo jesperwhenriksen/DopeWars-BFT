@@ -1,0 +1,46 @@
+DOPE WARS - BFT EDITION 1.3.0 / 21. NOVEMBER 2026
+
+NYT
+- Linux-understøttelsen fra den godkendte PR #1 er med.
+  Start med bash run-linux.sh fra kildekoden. Gemte LAN-forbindelser
+  beskyttes med AES-GCM og en privat nøglefil; Windows beholder DPAPI.
+- Linux-filerne medfølger også i kildekoden i Windows-pakkerne.
+- Værten findes igen efter tre forbindelsesfejl, også efter spilstart.
+  Session-id og certifikat skal matche; den nye adresse gemmes automatisk.
+- Fælles marked er standard i nye LAN-spil. Værten kan vælge det fra.
+- Valgfrie anonyme politi-tip; fra som standard. Pris, cooldown og begrænset
+  varighed hindrer gratis eller stablede tip. Målet får en tydelig besked.
+- Fælles aktivitetsliste og sammenligning af score ved samme spildag.
+- HTTPS-forbindelser genbruges; uændrede polls returnerer et lille svar.
+- Risiko vises på markedsskærmen. Heat har større betydning, pistol er
+  forbedret, virksomheder har lavere gebyrer, mules har risiko efter lager.
+
+BEVARET
+Køb og salg samme dag har nul prisforskel. Tasken viser gennemsnitlig
+indkøbspris. Hver spiller har egne dage. Startbyen er stadig Høje på Fyn.
+Reglerne virker i singleplayer og LAN; politi-tip findes kun i LAN.
+
+OPGRADERING
+Regelsæt bft-6 og LAN-protokol bft-lan-4. Alle deltagere skal bruge 1.3.0.
+Gamle filer sikkerhedskopieres som save.pre-v1.2.json / session.pre-v1.2.json
+før opgradering. Gamle sessioner bevarer personlige markeder, priser,
+penge, inventar, tilfældighed og allerede beregnede udbetalinger.
+Tidligere kvitteringer bevares, så genafsendte gamle køb ikke betales igen.
+Highscores fra andre regelsæt bevares separat.
+
+VALIDERING
+Kravtests: regler, økonomi, private/offentlige data, tip-afvisninger,
+dobbeltkommandoer, migrering, TLS-pinning, genforbindelse og Qt-skærme.
+Pakkede tests kører fra selve EXE-filen. Balance måles med faste seeds.
+Se dist/reports i kildemappen samt SPEC-STATUS.md og BALANCE-RESULTATER.txt.
+
+RESTERENDE AFPRØVNING
+Automatisk LAN-test sker på én Windows-pc. Test med to fysiske pc'er,
+jeres router, Windows Firewall og Wi-Fi-skift skal stadig udføres efter
+tjeklisten i LAN-LAES-MIG.txt.
+Emoji-reaktioner er udskudt efter produktvalget. Long-poll er ikke med;
+normal polling hvert sekund bevares. Ingen chat eller internetmatchmaking.
+
+SIGNERING
+Denne version er usigneret. SignPath-godkendelse er ikke bekræftet.
+Der ændres ikke på Windows' sikkerhedsindstillinger. Intet uploades automatisk.

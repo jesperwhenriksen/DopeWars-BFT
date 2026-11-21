@@ -122,4 +122,72 @@ class UIReleaseTests(unittest.TestCase):
    c.busy=True;c.send('ready');pending=copy.deepcopy(c.c['pending']);lobby.received(c,({'op':'poll'},dict(ok=True,view=view)));self.assertEqual(c.c['pending'],pending)
    lobby.received(c,(dict(pending,token=c.c['token']),dict(ok=True,view=view)));self.assertNotIn('pending',c.c)
   lobby.close();self.q.processEvents()
+ def test_TIP_7_same_day_tip_notice_without_replaying_market(self):
+  self.g.s['day']=4
+  with patch.object(self.g.rng,'random',return_value=1):self.w.act('wait')
+  self.q.processEvents();market=self.g.s['day_events'][0]['title']
+  self.w.event_dialog.accept();self.q.processEvents()
+  self.g.s['tip_until_day']=10
+  self.g.s['day_events'].append(dict(kind='tip',title='Politiet har fået et tip',text='Tippet til dag 10',day=5))
+  self.w.render();self.w.present_day_events();self.q.processEvents()
+  words=' '.join(x.text() for x in self.w.event_dialog.findChildren(ui.QLabel))
+  self.assertIn('Politiet har fået et tip',words);self.assertNotIn(market,words);self.assertNotIn('GREEN CARD',words)
+  self.assertIn('Tippet til dag 10',next(x for x in self.w.findChildren(ui.QLabel,'police_risk') if x.isVisible()).text())
+  self.w.event_dialog.accept();self.q.processEvents();self.w.present_day_events();self.assertIsNone(self.w.event_dialog)
+ def test_BAL_1_risk_preview_and_BAL_4_mule_explanation(self):
+  self.g.s.update(heat=65,tip_until_day=6);self.w.render();self.q.processEvents()
+  self.assertIn('62 %',next(x for x in self.w.findChildren(ui.QLabel,'police_risk') if x.isVisible()).text())
+  self.g.s['black']=10000;self.g.execute('hire',city='Aarhus',tier=0)
+  self.g.s['mules'][0]['inventory']['hash']=500
+  self.w.go(4);self.q.processEvents()
+  words=' '.join(x.text() for x in self.w.panel_scroll.widget().findChildren(ui.QLabel))
+  self.assertIn('2,60 %',words)
+ def test_TIP_9_lobby_defaults_and_started_sessions_filtered(self):
+  lobby=Lobby();lobby.search_timer.stop()
+  self.assertFalse(lobby.allow_tips.isChecked());self.assertTrue(lobby.shared_market.isChecked())
+  opts=dict(allow_tips=True,shared_market=False)
+  offer=dict(session='s',name='Test',days=31,players=2,options=opts,started=False,invite='test')
+  lobby.browsing=True;lobby.found([offer,dict(offer,session='running',started=True)])
+  self.assertEqual(lobby.games.count(),1);self.assertIn('Politi-tip: til',lobby.games.currentText())
+  self.assertIn('Fælles marked: fra',lobby.games.currentText());lobby.close()
+ def test_BAL_6_LAN_2_3_tip_controls_and_day_comparison(self):
+  from types import SimpleNamespace
+  players=[dict(id='me',name='A',day=10,score=900,history=[dict(day=10,score=900)],online=True,finished=False),
+           dict(id='b',name='B',day=15,score=4000,history=[dict(day=10,score=700)],online=True,finished=False),
+           dict(id='c',name='C',day=5,score=1000,history=[dict(day=5,score=1000)],online=False,finished=False)]
+  view=dict(state=self.g.s,name='Test',days=31,complete=False,players=players,me='me',options=dict(allow_tips=True,shared_market=True),
+            events=[dict(id=1,type='tip',player_id='b',data={})])
+  c=SimpleNamespace(view=view,c={},online=True)
+  w=LanWindow(c,SimpleNamespace(server=None));w.show();w.go(6);self.q.processEvents()
+  body=w.panel_scroll.widget();body.findChild(QSpinBox,'compare_day').setValue(10);self.q.processEvents()
+  body=w.panel_scroll.widget();table=body.findChild(ui.QTableWidget,'lan_standings')
+  self.assertEqual([table.item(r,1).text() for r in range(3)],['A','B','C'])
+  self.assertEqual(table.item(1,3).text(),'700 kr.');self.assertEqual(table.item(2,0).text(),'—')
+  self.assertEqual(table.item(2,3).text(),'Ikke nået')
+  self.assertIsNotNone(body.findChild(QPushButton,'tip_button'))
+  from PySide6.QtWidgets import QListWidget
+  self.assertIn('Nogen har tippet politiet om B',body.findChild(QListWidget,'lan_activity').item(0).text())
+  w.panel.close();w.hide();w.deleteLater();self.q.processEvents()
+ def test_LAN_3_2_unchanged_reply_restores_connection_status(self):
+  lobby=Lobby();lobby.browsing=False;lobby.search_timer.stop()
+  c=Connection(dict(token='x'*64,invite='127.0.0.1|1|'+'a'*64+'|code'),ui.DATA/'c');c.timer.stop();lobby.controller=c;lobby.window=self.w
+  c.online=False;c.view={'revision':0};self.w.main.setEnabled(False);self.w.statusBar().showMessage('Genforbinder…')
+  lobby.received(c,({'op':'poll'},dict(ok=True,view=dict(unchanged=True))))
+  self.assertTrue(self.w.main.isEnabled());self.assertIn('Forbundet igen',self.w.statusBar().currentMessage());lobby.close()
+
+ def test_TIP_7_open_police_dialog_updates_when_tip_arrives(self):
+  self.g.s['inventory']['hash']=25;self.g.s['police']=True;observed=[]
+  def remote_tip():
+   self.g.s['tip_until_day']=6;self.w.render();d=self.w.police_dialog
+   observed.extend([d.findChild(ui.QLabel,'police_chances').text(),d.findChild(ui.QLabel,'police_tip').text(),d.findChild(ui.QLabel,'police_tip').isVisible()]);d.accept()
+  with patch.object(self.w,'act') as act:
+   QTimer.singleShot(0,remote_tip);self.w.police();act.assert_called_once_with('police',choice='surrender')
+  self.assertIn('Flugtchance: 35 %',observed[0]);self.assertIn('Tippet til dag 6',observed[1]);self.assertTrue(observed[2])
+ def test_LAN_2_2_host_dnf_closes_police_without_extra_command(self):
+  self.g.s['inventory']['hash']=1;self.g.s['police']=True
+  def remote_dnf():self.g.s.update(finished=True,police=False);self.w.render()
+  with patch.object(self.w,'act') as act:
+   QTimer.singleShot(0,remote_dnf);self.w.police();act.assert_not_called()
+  self.assertIsNone(self.w.police_dialog)
+
 if __name__=='__main__':unittest.main()

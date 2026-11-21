@@ -1,4 +1,4 @@
-DOPE WARS - BFT EDITION 1.1.0
+DOPE WARS - BFT EDITION 1.3.0
 
 SPIL FRA ZIP
 Udpak hele ZIP-pakken, og start DopeWars-BFT.exe i spilmappen.
@@ -59,7 +59,11 @@ Opgradér tasken fra 50 til 100, 200, 350 eller 600 enheder.
 Tre våbenklasser forbedrer dine chancer mod politiet. Kamp og flugt kan
 koste helbred. Shoppen kan også helbrede dig. Ved død slutter spillet.
 En kontrol uden varer giver ét green card, højst ét ad gangen.
-Kontroller har 18 procent grundchance pr. dag, stigende med opmærksomhed.
+Kontroller har 18 procent grundchance pr. dag plus heat/250. Heat falder
+5 ved dagens skifte. Næste dags kontrolrisiko vises på markedsskærmen.
+Pistol har 58 procent kampchance, haglgevær 67 og riffel 82 procent.
+Flugt har 65 procent chance med tom taske, faldende til 45 med fuld taske.
+Med LAN-politi-tip stiger risiko og flugt bliver sværere; se LAN-guiden.
 Der går højst seks dagsskift mellem kontroller. Også kontroller med tom
 taske vises tydeligt. På 31 dage får du derfor mindst fem kontroller,
 hvis du gennemfører hele runden.
@@ -70,11 +74,16 @@ af kontanterne, men koster ikke helbred. Bankpenge bliver bevaret.
 MULES OG INVESTERINGER
 Hyr op til seks mules i andre byer. Tre niveauer sælger op til 5/12/25
 varer om dagen mod 12/20/28 procent cut. Send varer fra din taske; hver mule
-kan opbevare 500. Et sjældent tilbagefald koster varer og to dages pause.
+kan opbevare 500. Tilbagefald har 0,1 procent grundrisiko plus 0,005
+procentpoint pr. lagervare, højst 2,6 procent pr. aktiv dag. Risikoen vises
+for hver mule. Et tilbagefald koster 25 procent af lageret (oprundet) og
+to dages pause. Uden lager er der ingen risiko.
 Salg starter fra dit næste dagsskifte. En mule kan afskediges med tomt lager.
 
 Køb op til seks virksomheder for lovlige bankpenge. De giver dagligt afkast
 og kan behandle kontanter mod gebyr, ventetid og begrænset kapacitet.
+Designstudio: 12 procent, Spillehal: 11 procent, Pladeselskab: 10 procent.
+Kapacitet, ventetid og salgsværdi fremgår af Investeringer.
 Maks. tager hensyn til den ledige køplads. En virksomhed kan først sælges,
 når dens kø er tom. Alle mekanikker er fiktiv spilbalance.
 
@@ -90,7 +99,8 @@ Singleplayer gemmes automatisk efter hver handling og ved lukning.
 %LOCALAPPDATA%\BFT-DopeWars\highscores.json
 Nyt singleplayerspil erstatter autosave. Highscores bevares.
 Ældre gemninger opgraderes uden at ændre dagens priser eller dine penge.
-Version 1.1.0 bruger regelsæt bft-5. Tidligere resultater bevares i filen,
+Før opgradering gemmes en kopi som save.pre-v1.2.json.
+Version 1.3.0 bruger regelsæt bft-6. Tidligere resultater bevares i filen,
 men holdes adskilt fra nye resultater, fordi handels- og risikoregler er ændret.
 LAN-filer ligger i samme mappe under LAN. Læs LAN-LAES-MIG.txt.
 

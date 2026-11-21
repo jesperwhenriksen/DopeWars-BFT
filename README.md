@@ -1,78 +1,107 @@
-# Dope Wars - BFT edition
+# Dope Wars – BFT edition 1.3.0
 
-A Danish-language Windows strategy game for singleplayer and local LAN play.
-Start in Høje på Fyn, travel between eight Danish cities, and compete on public
-highscores while each player advances at their own pace. All trading, police
-events and money are fictional game mechanics.
+Dansk strategispil til Windows og Linux med singleplayer og 2–8 venner på lokalnettet.
+Start i Høje på Fyn, rejs mellem otte byer, og konkurrér på lovlig nettoformue.
+Hver spiller styrer sit eget dagtempo. Handel, priser, politi og økonomi er
+fiktive spilmekanikker. Køb og salg samme sted samme dag har ingen prisforskel.
 
-This is an independent Python/Qt implementation. It does not include the
-Beermat game's code, artwork or sounds, or the code of another Dope Wars project.
+Dette er en selvstændig Python/Qt-implementering. Beermats kode, billeder og
+lyde indgår ikke. BFT-koden og projektets originale grafik er under MIT.
 
-## Current status
+## Nyt i version 1.3.0
 
-The original BFT code and artwork in this source tree are licensed under MIT.
-SignPath Foundation enrollment is in preparation and has not been completed.
-Existing version 1.1.0 downloads are unsigned. A successful build or a passing
-test does not mean that SignPath has approved or signed it.
+- Linux-understøttelsen fra PR #1 er med: datamapper, fonte og beskyttelse af
+  gemte LAN-forbindelser. Windows bruger fortsat DPAPI.
+- De seneste spil- og LAN-ændringer er samlet i samme version:
 
-## Play
+- Automatisk genforbindelse finder en startet vært på en ny adresse/port.
+  Både session-id og det gemte certifikat skal matche. Reserveinvitationen bevares.
+- Værten vælger **Samme marked for alle** (til som standard). Samme by,
+  område og spildag har samme priser og prisbegivenheder. Politi, mules og
+  ventetiden på bankens hvidvaskning er stadig personlige.
+- **Tillad anonyme politi-tip** er fra som standard. Slår værten det til,
+  kan andre spillere påvirke din kontrolrisiko og flugtchance. Alle ser
+  indstillingen før tilslutning; den ændres ikke under spillet.
+- Highscores viser fælles aktivitet og **Sammenlign ved dag N**. En spiller,
+  der endnu ikke har nået dagen, får ingen placering ved den sammenligning.
+- HTTPS-forbindelser genbruges. Uændrede polls har små svar; pin-kontrol
+  udføres før data sendes på hver ny forbindelse.
+- Heat betyder mere; pistol har 58 % kampchance. Virksomhedsgebyrer er
+  12/11/10 %. Mules med større lager har højere risiko for tilbagefald.
 
-Windows 10/11 x64. Extract the complete portable ZIP and start
-`DopeWars-BFT.exe`. Keep `_internal` alongside it. No Python installation,
-online account or Internet connection is required to play.
+Et tip koster 4 % af afsenderens sorte kontanter, oprundet, mindst 500 kr.
+Det gælder til og med målets nuværende dag + 5, og afsenderen skal vente
+10 egne spildage før et nyt tip. Offline spillere mister ingen dage.
+Tip kan ikke stables. Kontrolrisikoen stiger 20 procentpoint, og flugtchancen
+falder 20 procentpoint med gulv på 15 %. Kampchance og green cards er uændrede.
+Mislykket flugt under tip giver halv skade, oprundet, og efterlader mindst
+ét helbred. Afsenderen vises ikke til de andre spillere; værts-pc'en er betroet.
 
-Choose singleplayer or LAN in the game. One player hosts a lobby; others find
-it on the local network. The host starts the round. All players need the same
-game version. See [the Danish guide](LAES-MIG.txt) and
-[LAN instructions](LAN-LAES-MIG.txt).
+## Spil
 
-Save games and scores are stored in `%LOCALAPPDATA%\BFT-DopeWars`.
-Remove the extracted game folder to uninstall; saved data remains.
+Windows 10/11 x64. Brug installeren, eller udpak **hele** den portable ZIP og
+start `DopeWars-BFT.exe`. Behold `_internal` ved siden af EXE-filen. Python,
+internetkonto og internetforbindelse er ikke nødvendige for at spille.
 
-## Linux (fra kildekode)
+Én vælger LAN og opretter en lobby. De andre finder den automatisk på samme
+lokalnet. Alle markerer sig klar, og værten starter. Alle skal bruge 1.3.0.
+Læs [spilguiden](LAES-MIG.txt) og [LAN-guiden](LAN-LAES-MIG.txt).
 
-Kræver Python 3.10+ og Qt-systembiblioteker (Arch/CachyOS: `qt6-base`, `xcb-util-cursor`).
+Gemte spil ligger i `%LOCALAPPDATA%\BFT-DopeWars` og bevares ved opdatering
+og afinstallation. Gamle spil migreres til regelsæt `bft-6` / protokol
+`bft-lan-4`, efter en sikkerhedskopi. Igangværende gamle LAN-sessioner beholder
+personlige markeder og får politi-tip slået fra. Dagens priser, penge, ordrer
+og tilfældighedstilstand bevares. Tidligere highscores holdes på eget regelsæt.
+
+## Linux
+
+Kræver Python 3.10+ og Qt-systembiblioteker. Pak kildekoden ud og kør:
 
 ```bash
-./run-linux.sh          # opretter .venv-linux ved første kørsel og starter spillet
-./run-linux.sh --test   # kører alle tests headless
+bash run-linux.sh
+bash run-linux.sh --test
 ```
 
-Gemte spil og scores ligger i `~/.local/share/BFT-DopeWars` (eller `$XDG_DATA_HOME`,
-eller `$BFT_DATA_DIR`). LAN-forbindelsesdata krypteres med en nøglefil (`linux-protect.key`,
-rettigheder 0600) i samme mappe i stedet for Windows DPAPI. Åbn firewallen på privat net
-for TCP 47652 og UDP 47653 (fx `sudo ufw allow 47652/tcp && sudo ufw allow 47653/udp`,
-eller `firewall-cmd`). Linux og Windows kan spille LAN sammen, hvis versionen er den samme.
+Første kørsel opretter `.venv-linux` og henter Python-pakkerne; senere opdateres
+de kun, hvis kravene er ændret. Derefter kan spillet køre uden internet.
+På Ubuntu/Debian kræves bl.a. `python3-venv`, `libegl1`, `libgl1`,
+`libxkbcommon-x11-0` og `libxcb-cursor0`; på Arch/CachyOS `qt6-base` og
+`xcb-util-cursor`. Linux leveres som kildekode med startscript.
 
-## Build and validation
+Data gemmes i `~/.local/share/BFT-DopeWars` eller under `$XDG_DATA_HOME`.
+`BFT_DATA_DIR` kan angive en anden datamappe på begge platforme.
+Linux beskytter LAN-forbindelser med AES-GCM og `linux-protect.key` med
+rettigheder 0600. Bevar nøglen sammen med data, hvis de sikkerhedskopieres.
+Windows og Linux bruger samme LAN-protokol. Værtens firewall skal tillade
+TCP 47652 og UDP 47653 fra det private lokalnet. Fysisk LAN mellem platformene
+skal stadig afprøves efter tjeklisten i LAN-guiden.
 
-Install Python 3.12 x64 and run `./build.ps1` in PowerShell. See [BUILD.txt](BUILD.txt).
-The build uses pinned dependency versions, generates the original BFT branding,
-runs source and packaged acceptance tests, and creates the full portable game.
-The tests exercise game rules, Qt screens and real TLS connections on one PC.
-They do not substitute for a physical multi-PC/firewall LAN test.
+## Byg og test
 
-The [GitHub Actions workflow](.github/workflows/windows.yml) uses GitHub-hosted
-Windows runners. Ordinary builds produce unsigned candidates. Signing can only
-be requested manually on `main` after SignPath approves the project and the
-maintainer configures its credentials and policy. No releases are published
-automatically.
+Kør `./build.ps1` med Python 3.12 x64. [BUILD.txt](BUILD.txt) beskriver isoleret
+miljø, installer, balancesimulering og 60-sekunders LAN-belastningstest.
+Bygningen tester både kildekode og den pakkede EXE. [Specifikationen](DopeWars-BFT-SPEC.md)
+og [testoversigten](SPEC-STATUS.md) kobler krav til tests og resterende afprøvning.
+Resultater gemmes i `dist/reports`. Ingen spillergemninger bruges i testene.
 
-## Code signing policy
+Automatiske tests bruger ægte TLS og Qt på én Windows-pc. De erstatter ikke
+den manuelle test med to fysiske pc'er, Wi-Fi-skift og Windows Firewall.
+Den tjekliste står i LAN-guiden og er endnu ikke afkrydset.
 
-SignPath Foundation application in preparation; no sponsorship is claimed yet.
-See [Code signing policy](CODE-SIGNING-POLICY.txt) and [signing setup](SIGNERING.txt).
-The project maintainer is [@jesperwhenriksen](https://github.com/jesperwhenriksen).
-The proposed production signing responsibilities are documented in the policy.
+[GitHub-workflowet](.github/workflows/windows.yml) tester Windows og Linux.
+Windows-pakkerne bygges og testes fra samme kildekode. SignPath-ansøgningen
+er indsendt, men godkendelse og signering er endnu ikke bekræftet.
+Denne version er usigneret. Se [signeringspolitik](CODE-SIGNING-POLICY.txt)
+og [opsætning](SIGNERING.txt).
 
-## Privacy
+## Privatliv og licens
 
-No advertising, analytics or telemetry. Network communication is initiated by
-LAN hosting, discovery or joining a game. See [Privacy policy](PRIVACY.txt).
+Ingen reklamer, analyseværktøjer eller telemetri. LAN-stillingen deler dag,
+bank, aktivværdi, gæld, score, status og historik med kun dag/score. Aktivitet
+viser milepæle, afslutning, første virksomhed, DNF og anonyme tip. Kontanter,
+varer, by, område og fremtidige markedsseeds sendes ikke til andre spillere.
+Værten beregner og gemmer spillet. Se [privatliv](PRIVACY.txt).
 
-## License and artwork
-
-The original BFT code and artwork are licensed under [MIT](LICENSE).
-Dependencies retain their own licenses: [third-party notices](THIRD-PARTY.txt).
-The BFT logo is generated from the project's original icon. The beer logo from
-the private prototype is not part of this source tree or its builds.
+[MIT-licens](LICENSE). Biblioteker beholder deres egne
+[licenser](THIRD-PARTY.txt). Logo og ikoner er original BFT-grafik;
+øl-logoet fra den private prototype indgår ikke i denne udgave.

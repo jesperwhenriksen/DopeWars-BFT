@@ -9,7 +9,7 @@ def data_dir():
     if override:
         return Path(override)
     if sys.platform == 'win32':
-        base = Path(os.environ.get('LOCALAPPDATA', str(Path.home())))
+        base = Path(os.environ.get('LOCALAPPDATA') or Path.home())
     else:
         base = Path(os.environ.get('XDG_DATA_HOME') or Path.home() / '.local' / 'share')
     return base / 'BFT-DopeWars'

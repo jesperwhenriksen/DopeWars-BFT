@@ -1,0 +1,290 @@
+{
+  "version": "1.2.0",
+  "ruleset": "bft-6",
+  "seed": 20261121,
+  "assumptions": "Samme startformue og faste fiktive indtægter; ingen handel, lån eller geninvestering.",
+  "police": {
+    "normal": {
+      "days": 10000,
+      "controls": 2587,
+      "rate": 0.2587
+    },
+    "tip": {
+      "days": 10000,
+      "controls": 4067,
+      "rate": 0.4067
+    },
+    "low_heat": {
+      "days": 10000,
+      "controls": 2703,
+      "rate": 0.2703
+    },
+    "high_heat": {
+      "days": 10000,
+      "controls": 4428,
+      "rate": 0.4428
+    }
+  },
+  "weapons": [
+    {
+      "weapon": "Ingen",
+      "price": 0,
+      "fill": 0,
+      "fight": 0.12,
+      "run": 0.65,
+      "best_available": "Flygt"
+    },
+    {
+      "weapon": "Ingen",
+      "price": 0,
+      "fill": 0.25,
+      "fight": 0.12,
+      "run": 0.6,
+      "best_available": "Flygt"
+    },
+    {
+      "weapon": "Ingen",
+      "price": 0,
+      "fill": 0.5,
+      "fight": 0.12,
+      "run": 0.55,
+      "best_available": "Flygt"
+    },
+    {
+      "weapon": "Ingen",
+      "price": 0,
+      "fill": 0.75,
+      "fight": 0.12,
+      "run": 0.5,
+      "best_available": "Flygt"
+    },
+    {
+      "weapon": "Ingen",
+      "price": 0,
+      "fill": 1,
+      "fight": 0.12,
+      "run": 0.45,
+      "best_available": "Flygt"
+    },
+    {
+      "weapon": "Pistol",
+      "price": 2500,
+      "fill": 0,
+      "fight": 0.58,
+      "run": 0.65,
+      "best_available": "Flygt"
+    },
+    {
+      "weapon": "Pistol",
+      "price": 2500,
+      "fill": 0.25,
+      "fight": 0.58,
+      "run": 0.6,
+      "best_available": "Flygt"
+    },
+    {
+      "weapon": "Pistol",
+      "price": 2500,
+      "fill": 0.5,
+      "fight": 0.58,
+      "run": 0.55,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Pistol",
+      "price": 2500,
+      "fill": 0.75,
+      "fight": 0.58,
+      "run": 0.5,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Pistol",
+      "price": 2500,
+      "fill": 1,
+      "fight": 0.58,
+      "run": 0.45,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Haglgevær",
+      "price": 7000,
+      "fill": 0,
+      "fight": 0.67,
+      "run": 0.65,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Haglgevær",
+      "price": 7000,
+      "fill": 0.25,
+      "fight": 0.67,
+      "run": 0.6,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Haglgevær",
+      "price": 7000,
+      "fill": 0.5,
+      "fight": 0.67,
+      "run": 0.55,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Haglgevær",
+      "price": 7000,
+      "fill": 0.75,
+      "fight": 0.67,
+      "run": 0.5,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Haglgevær",
+      "price": 7000,
+      "fill": 1,
+      "fight": 0.67,
+      "run": 0.45,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Riffel",
+      "price": 16000,
+      "fill": 0,
+      "fight": 0.82,
+      "run": 0.65,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Riffel",
+      "price": 16000,
+      "fill": 0.25,
+      "fight": 0.82,
+      "run": 0.6,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Riffel",
+      "price": 16000,
+      "fill": 0.5,
+      "fight": 0.82,
+      "run": 0.55,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Riffel",
+      "price": 16000,
+      "fill": 0.75,
+      "fight": 0.82,
+      "run": 0.5,
+      "best_available": "Kæmp"
+    },
+    {
+      "weapon": "Riffel",
+      "price": 16000,
+      "fill": 1,
+      "fight": 0.82,
+      "run": 0.45,
+      "best_available": "Kæmp"
+    }
+  ],
+  "businesses": [
+    {
+      "days": 90,
+      "asset": "Designstudio",
+      "fee": 12,
+      "seeds": 31,
+      "wash_median": 37850,
+      "business_median": 41410,
+      "difference": 3560
+    },
+    {
+      "days": 90,
+      "asset": "Spillehal",
+      "fee": 11,
+      "seeds": 31,
+      "wash_median": 134460,
+      "business_median": 146910,
+      "difference": 12450
+    },
+    {
+      "days": 90,
+      "asset": "Pladeselskab",
+      "fee": 10,
+      "seeds": 31,
+      "wash_median": 444200,
+      "business_median": 485340,
+      "difference": 41140
+    },
+    {
+      "days": 180,
+      "asset": "Designstudio",
+      "fee": 12,
+      "seeds": 31,
+      "wash_median": 76100,
+      "business_median": 81910,
+      "difference": 5810
+    },
+    {
+      "days": 180,
+      "asset": "Spillehal",
+      "fee": 11,
+      "seeds": 31,
+      "wash_median": 272160,
+      "business_median": 293250,
+      "difference": 21090
+    },
+    {
+      "days": 180,
+      "asset": "Pladeselskab",
+      "fee": 10,
+      "seeds": 31,
+      "wash_median": 903200,
+      "business_median": 976740,
+      "difference": 73540
+    },
+    {
+      "days": 365,
+      "asset": "Designstudio",
+      "fee": 12,
+      "seeds": 31,
+      "wash_median": 154300,
+      "business_median": 165160,
+      "difference": 10860
+    },
+    {
+      "days": 365,
+      "asset": "Spillehal",
+      "fee": 11,
+      "seeds": 31,
+      "wash_median": 553680,
+      "business_median": 594060,
+      "difference": 40380
+    },
+    {
+      "days": 365,
+      "asset": "Pladeselskab",
+      "fee": 10,
+      "seeds": 31,
+      "wash_median": 1841600,
+      "business_median": 1986840,
+      "difference": 145240
+    }
+  ],
+  "mules": [
+    {
+      "stock": 5,
+      "risk": 0.00125,
+      "losses": 131
+    },
+    {
+      "stock": 100,
+      "risk": 0.006,
+      "losses": 595
+    },
+    {
+      "stock": 500,
+      "risk": 0.026,
+      "losses": 2568
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "scope": "8 loopback TLS-klienter og Qt-værtsvindue på én Windows-pc; ikke en fysisk LAN-måling.",
+  "results": [
+    {
+      "mode": "ny TLS pr. kald",
+      "seconds": 60.001,
+      "clients": 8,
+      "requested_poll_interval": 0.1,
+      "polls": 4774,
+      "poll_p95_ms": 18.494,
+      "poll_max_ms": 44.347,
+      "handshakes": 6694,
+      "handshakes_per_second": 111.564,
+      "commands_sent": 960,
+      "commands_committed": 960,
+      "errors": [],
+      "ui_heartbeats": 2979,
+      "ui_p95_gap_ms": 31.652,
+      "ui_max_gap_ms": 170.432
+    },
+    {
+      "mode": "keepalive+since",
+      "seconds": 60.005,
+      "clients": 8,
+      "requested_poll_interval": 0.1,
+      "polls": 4778,
+      "poll_p95_ms": 9.571,
+      "poll_max_ms": 39.175,
+      "handshakes": 8,
+      "handshakes_per_second": 0.133,
+      "commands_sent": 960,
+      "commands_committed": 960,
+      "errors": [],
+      "ui_heartbeats": 2979,
+      "ui_p95_gap_ms": 31.729,
+      "ui_max_gap_ms": 171.255
+    }
+  ],
+  "passed": true
+}

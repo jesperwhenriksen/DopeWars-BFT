@@ -1,0 +1,62 @@
+BALANCEMÅLING / BFT 1.2.0 / 21. NOVEMBER 2026
+
+Faste seeds. Fiktiv spiløkonomi; ikke virkelige penge eller markedsdata.
+Baseline blev kørt før ændringerne og ligger i baseline-balance.json.
+Detaljer fra ny kode: BALANCE-1.2.json. Script: simulate_balance.py.
+
+POLITI / BAL-1, TIP-4
+10.000 dage med seed 20261121 og spillets risikofunktion samt seksdagesloft.
+Konstant heat efter dagens fald; tom taske isolerer kontrolhyppigheden.
+Tip er aktivt gennem hele prøveperioden for at sammenligne risikoen.
+normal: 2587 kontroller / 10000 dage = 25.87 %
+tip: 4067 kontroller / 10000 dage = 40.67 %
+low_heat: 2703 kontroller / 10000 dage = 27.03 %
+high_heat: 4428 kontroller / 10000 dage = 44.28 %
+
+VIRKSOMHEDER / BAL-3
+Samme startformue og samme daglige kontanttilførsel i begge strategier.
+Tilførsel svarer til den valgte virksomheds dagskapacitet. Startbank svarer
+til dens købspris. Ingen lån, handel eller geninvestering. 31 seeds.
+Score ved slutdagen; resterende kontanter og ufærdige ordrer tæller ikke.
+Før ændringen tabte alle tre virksomhedsstrategier i median ved 90/180/365
+dage. Kun gebyrer ændres til 12/11/10 %. Kapacitet, kø, indkomst, ventetid
+og salgsværdi bevares. Tidligere afgivne ordrer får ikke nyt gebyr.
+90 dage, Designstudio: median 41410 mod billig hvidvask 37850; forskel +3560.
+90 dage, Spillehal: median 146910 mod billig hvidvask 134460; forskel +12450.
+90 dage, Pladeselskab: median 485340 mod billig hvidvask 444200; forskel +41140.
+180 dage, Designstudio: median 81910 mod billig hvidvask 76100; forskel +5810.
+180 dage, Spillehal: median 293250 mod billig hvidvask 272160; forskel +21090.
+180 dage, Pladeselskab: median 976740 mod billig hvidvask 903200; forskel +73540.
+365 dage, Designstudio: median 165160 mod billig hvidvask 154300; forskel +10860.
+365 dage, Spillehal: median 594060 mod billig hvidvask 553680; forskel +40380.
+365 dage, Pladeselskab: median 1986840 mod billig hvidvask 1841600; forskel +145240.
+
+VÅBEN / BAL-2
+Pistol hævet fra 48 til 58 %. Uden tip er flugt bedst med højst 35 % fyld
+over for pistol; med mere end 35 % er pistolens kampchance højere.
+Haglgevær 67 % og riffel 82 % har højere succesrate end flugt ved alle
+fyldningsgrader. Sammenligningen gælder eget/tilgængeligt våben og flugt.
+Specifikationens ord om hvert våben som bedste valg forstås med et budget:
+en billig pistol bliver ikke stærkere end en allerede ejet riffel.
+Alle fyldningsgrader og valgmuligheder findes i JSON-tabellen.
+
+MULES / BAL-4
+100.000 ens tilfældighedstræk pr. lagerstørrelse; beholdningen holdes fast
+for at måle risiko, ikke et helt salgsforløb. Baseline: 105 hændelser ved
+alle lagre. Nu stiger risikoen med lageret; tomt lager behandles ikke.
+Lager 5: risiko 0.125 %, 131 hændelser.
+Lager 100: risiko 0.600 %, 595 hændelser.
+Lager 500: risiko 2.600 %, 2568 hændelser.
+
+LAN-YDELSE / LAN-3.5, NFR-8
+8 TLS-klienter i 60 sekunder pr. metode. 0,1 sekund mellem polls; normal
+klient bruger 1 sekund. Samme 1.2-spilmotor, pc og kommandosekvens i begge.
+Før-metoden efterligner 1.1-transport med ny TLS-forbindelse og fuldt svar.
+Det er en transport-sammenligning, ikke en måling af en original 1.1-EXE.
+Qt-værtsvinduet tegnes under målingen. Alle kommandoer genafsendes også
+med samme kvittering for at kontrollere, at de kun udføres én gang.
+ny TLS pr. kald: p95 18.494 ms; 6694 TLS-håndtryk (111.564/s); handlinger 960/960; fejl 0; GUI-p95 31.652 ms.
+keepalive+since: p95 9.571 ms; 8 TLS-håndtryk (0.133/s); handlinger 960/960; fejl 0; GUI-p95 31.729 ms.
+
+Loopback på én Windows-pc. Fysisk netværk og Firewall er ikke målt.
+Se LAN-LAES-MIG.txt for den resterende manuelle accepttest.

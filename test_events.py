@@ -165,13 +165,52 @@ class MarketEventTests(unittest.TestCase):
                 self.assertEqual(p['state']['markets'], original['players']['player']['state']['markets'])
                 self.assertEqual(session.game(p).rng.getstate(), g.rng.getstate())
                 self.assertEqual(p['revision'], 17)
-                backup = json.loads(path.with_suffix('.pre-v1.1.json').read_text(encoding='utf-8'))
+                backup = json.loads(path.with_suffix('.pre-v1.2.json').read_text(encoding='utf-8'))
                 self.assertEqual(backup['protocol'], old_protocol)
                 self.assertEqual(backup['ruleset'], 'bft-4')
                 with self.assertRaisesRegex(ValueError, 'LAN-version'):
                     session.dispatch(dict(op='poll', protocol=old_protocol))
                 session.db.close()
 
+
+class CompatibilityAndDocsTests(unittest.TestCase):
+    def test_TIP_11_NFR_1_bft5_save_backup_preserves_existing_orders(self):
+        g=new_game(seed=8);g.s.update(black=20000,clean=5000)
+        g.execute('asset',tier=0);g.execute('fund',aid=g.s['assets'][0]['id'],amount=1000)
+        g.execute('wash',amount=1000,tier=0)
+        old=copy.deepcopy(g.s);old['ruleset']='bft-5';old['assets'][0]['queue'][0]['payout']=750
+        for key in ('tip_until_day','tip_cooldown_until','market_seed','entity_seq'):old.pop(key)
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'save.json';path.write_text(json.dumps(dict(state=old,rng=g.rng.getstate())),encoding='utf-8')
+            upgraded=Game.load(path)
+            for key in ('markets','black','clean','debt','assets','mules','washing','history','inventory','cost','day'):
+                self.assertEqual(upgraded.s[key],old[key],key)
+            self.assertEqual(upgraded.rng.getstate(),g.rng.getstate())
+            self.assertEqual(upgraded.s['tip_until_day'],0);self.assertFalse(upgraded.tip_active)
+            backup=path.with_suffix('.pre-v1.2.json');original_backup=backup.read_bytes()
+            self.assertEqual(json.loads(original_backup)['state'],old)
+            upgraded.execute('wait');upgraded.save(path);Game.load(path)
+            self.assertEqual(backup.read_bytes(),original_backup)
+            for value in (-1,True,1.1):
+                upgraded.s['tip_until_day']=value
+                with self.assertRaises(RuleError):upgraded.check()
+
+    def test_TIP_12_NFR_6_7_distribution_documents_and_build_options(self):
+        import sys
+        from game import VERSION
+        root=(Path(sys.executable).parent/'source') if getattr(sys,'frozen',False) else Path(__file__).parent
+        for name in ('README.md','LAN-LAES-MIG.txt','LAES-MIG.txt','BUILD.txt','RELEASE-NOTES.txt'):
+            text=(root/name).read_text(encoding='utf-8')
+            self.assertIn(VERSION,text,name)
+        for name in ('README.md','LAN-LAES-MIG.txt'):
+            text=(root/name).read_text(encoding='utf-8').lower()
+            for word in ('politi-tip','fælles','spildag','certifikat','firewall'):self.assertIn(word,text,name)
+        build=(root/'build.ps1').read_text(encoding='utf-8')
+        for name in ('simulate_balance.py','benchmark_lan.py','release-self-test','self-test','installer.iss'):self.assertIn(name,build)
+        for name in ('simulate_balance.py','benchmark_lan.py','SPEC-STATUS.md','DopeWars-BFT-SPEC.md','BALANCE-1.2.json','LAN-YDELSE.json'):
+            self.assertTrue((root/name).is_file(),name)
+        self.assertIn('"'+VERSION+'"',(root/'installer.iss').read_text(encoding='utf-8'))
+        self.assertIn("'"+VERSION+"'",(root/'version_info.txt').read_text(encoding='utf-8'))
 
 if __name__ == '__main__':
     unittest.main()

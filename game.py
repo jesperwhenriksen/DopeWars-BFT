@@ -10,10 +10,11 @@ import math
 import inspect
 import random
 import uuid
+import hashlib
 from pathlib import Path
 
-VERSION = '1.1.0'
-RULESET = 'bft-5'
+VERSION = '1.3.0'
+RULESET = 'bft-6'
 DURATIONS = (31, 90, 180, 365)
 DRUGS = {'hash': ('Hash', 150), 'cocaine': ('Kokain', 900),
          'amphetamine': ('Amfetamin', 300), 'mdma': ('MDMA', 450),
@@ -59,12 +60,25 @@ OBSERVED = {
 SOURCE = 'https://www.sst.dk/media/ge5pvsjy/national-kortlaegning-af-rusmidler-i-spildevand-fra-danske-byer.pdf'
 LATEST_SOURCE = 'https://www.sst.dk/Vidensbank-om-opioider/Spildevandsovervaagning'
 BAGS = [('Frakkelommer', 50, 0), ('Rygsæk', 100, 1400), ('Sportstaske', 200, 4200), ('Rejsetaske', 350, 9500), ('Ekspeditionstaske', 600, 20000)]
-WEAPONS = [('Ingen', 0, .12), ('Pistol', 2500, .48), ('Haglgevær', 7000, .67), ('Riffel', 16000, .82)]
+WEAPONS = [('Ingen', 0, .12), ('Pistol', 2500, .58), ('Haglgevær', 7000, .67), ('Riffel', 16000, .82)]
 MULE_TIERS = [('Begynder', 800, 5, 12), ('Erfaren', 2400, 12, 20), ('Specialist', 6500, 25, 28)]
-ASSETS = [('Designstudio', 3000, 500, 25, 2, 10),
-          ('Spillehal', 9000, 1800, 23, 3, 24),
-          ('Pladeselskab', 26000, 6000, 20, 4, 60)]
+ASSETS = [('Designstudio', 3000, 500, 12, 2, 10),
+          ('Spillehal', 9000, 1800, 11, 3, 24),
+          ('Pladeselskab', 26000, 6000, 10, 4, 60)]
 MULE_RISK = .001  # Per active day; ~30.6% chance of >=1 event over 365 days.
+HEAT_DIVISOR = 250
+TIP_DAYS = 5
+TIP_RISK_BONUS = .20
+TIP_RUN_PENALTY = .20
+TIP_COOLDOWN = 10
+
+
+def tip_cost(black):
+    return max(500, (black * 4 + 99) // 100)
+
+
+def mule_risk(stock):
+    return min(.026, MULE_RISK + max(0, stock) / 20000)
 WASH_OPTIONS = [('Billig', 15, 5, 12), ('Standard', 25, 3, 7), ('Hurtig', 40, 1, 3)]
 INTEREST_BP = 150  # 1.5% per day, rounded up, compound.
 MARKET_EVENT_CHANCE = .35
@@ -97,21 +111,24 @@ def demand(city, drug):
     return round(max(.80, min(1.25, 1 + .18 * math.log2(values[i] / mean))), 3)
 
 
-def new_game(name='Spiller', city='Høje på Fyn', days=31, seed=None):
+def new_game(name='Spiller', city='Høje på Fyn', days=31, seed=None, market_seed=None):
     if city not in CITIES or type(days) is not int or days not in DURATIONS:
         raise RuleError('Vælg en gyldig by og tidshorisont.')
     g = Game()
     g.rng = random.Random(seed)
-    g.s = dict(schema=1, ruleset=RULESET, id=uuid.uuid4().hex, name=(''.join(c for c in str(name) if c.isprintable()).strip() or 'Spiller')[:24],
+    gid=uuid.uuid4().hex if seed is None else hashlib.sha256(('bft6:'+str(seed)).encode()).hexdigest()[:32]
+    g.s = dict(schema=1, ruleset=RULESET, id=gid, name=(''.join(c for c in str(name) if c.isprintable()).strip() or 'Spiller')[:24],
                city=city, district=0, day=1, duration=days, black=2000, stash=0, clean=0,
                debt=5500, health=100, heat=0, bag=0, weapon=0,
                inventory={k: 0 for k in DRUGS}, cost={k: 0 for k in DRUGS},
                markets={}, mules=[], assets=[], washing=[], log=[], history=[], finished=False,
                reason='', police=False, green_card=False, market_event='', market_event_detail=None,
                last_market_event_day=1, last_police_day=1, day_events=[],
+               market_seed=market_seed, entity_seq=0, tip_until_day=0, tip_cooldown_until=0,
                last_summary='Din første dag starter nu.')
     g.roll_markets()
     g.log('Velkommen til BFT. Kun lovlig nettoformue tæller på highscorelisten.')
+    g.record_score()
     return g
 
 
@@ -144,6 +161,33 @@ class Game:
     def next_interest(self):
         return (self.s['debt'] * INTEREST_BP + 9999) // 10000
 
+    @property
+    def tip_active(self):
+        return 0 < self.s.get('tip_until_day', 0) and self.s['day'] <= self.s['tip_until_day']
+
+    def police_risk(self, next_day=False):
+        day=self.s['day']+int(next_day)
+        heat=max(0,self.s['heat']-5) if next_day else self.s['heat']
+        if day-self.s['last_police_day'] >= POLICE_MAX_GAP:return 1.0
+        tipped=0 < self.s.get('tip_until_day',0) and day<=self.s['tip_until_day']
+        return min(1.0, POLICE_BASE_CHANCE+heat/HEAT_DIVISOR+(TIP_RISK_BONUS if tipped else 0))
+
+    @property
+    def run_chance(self):
+        normal=.65-.2*self.used/max(1,self.capacity)
+        return max(.15,normal-(TIP_RUN_PENALTY if self.tip_active else 0))
+
+    def record_score(self):
+        # BAL-6: the last observed score for each personal day, never private data.
+        record=dict(day=self.s['day'],score=self.score)
+        if self.s['history'] and self.s['history'][-1]['day']==self.s['day']:self.s['history'][-1]=record
+        else:self.s['history'].append(record)
+
+    def entity_id(self):
+        # NFR-3: stable identifiers without consuming the gameplay RNG stream.
+        self.s['entity_seq']=self.s.get('entity_seq',0)+1
+        return hashlib.sha256((self.s['id']+':'+str(self.s['entity_seq'])).encode()).hexdigest()[:16]
+
     def log(self, msg):
         self.s['log'].insert(0, f"Dag {self.s['day']:03d}  ·  {msg}")
         self.s['log'] = self.s['log'][:160]
@@ -154,6 +198,9 @@ class Game:
         return self.s['markets'][city][district][drug]
 
     def roll_markets(self):
+        if self.s.get('market_seed') is not None:
+            self.roll_shared_markets()
+            return
         self.s['markets'] = {}
         # Markets are fixed for the day. No reroll by reopening screens or saves.
         for city in CITIES:
@@ -180,6 +227,37 @@ class Game:
             self.s['day_events'].append(copy.deepcopy(detail))
             self.s['last_market_event_day'] = self.s['day']
             self.s['market_event'] = f"{DRUGS[k][0]} {change:+d} % · {money(before)} → {money(market[k])}"
+
+    def roll_shared_markets(self):
+        """BAL-5: one world per session/day, independent of route and personal RNG.
+
+        Corresponding cities/areas share prices. Daily shocks affect every city;
+        local profiles still apply, and future prices/seeds never leave the host.
+        """
+        seed=self.s['market_seed'];day=self.s['day']
+        rng=random.Random(f'{seed}:prices:{day}')
+        self.s['markets']={city:[{k:max(10,round(base*rng.uniform(.5,1.65)*demand(city,k)*
+            (1.15 if day%7 in (6,0) and k in ('cocaine','mdma') else 1)*area_factor(city,area,k)))
+            for k,(_,base) in DRUGS.items()} for area in range(6)] for city in CITIES}
+        # The cadence is a function of session seed and day, not player history.
+        last=1;event_rng=None
+        for d in range(2,day+1):
+            daily=random.Random(f'{seed}:event:{d}')
+            if daily.random()<MARKET_EVENT_CHANCE or d-last>=MARKET_EVENT_MAX_GAP:
+                last=d
+                if d==day:event_rng=daily
+        self.s['last_market_event_day']=last
+        self.s['market_event']='';self.s['market_event_detail']=None
+        if event_rng is None:return
+        k=event_rng.choice(list(DRUGS));headline,factor,story=event_rng.choice(MARKET_EVENTS)
+        before=self.quote(k)
+        for areas in self.s['markets'].values():
+            for market in areas:market[k]=max(1,round(market[k]*factor))
+        price=self.quote(k);change=round((price/before-1)*100)
+        detail=dict(kind='market',title=headline,drug=k,before=before,price=price,change=change,
+                    text=story.format(drug=DRUGS[k][0]),day=day)
+        self.s['market_event_detail']=detail;self.s['day_events'].append(copy.deepcopy(detail))
+        self.s['market_event']=f'{DRUGS[k][0]} {change:+d} % · {money(before)} → {money(price)}'
 
     def require_active(self, police_ok=False):
         if self.s['finished']:
@@ -217,6 +295,7 @@ class Game:
         before, rng = copy.deepcopy(self.s), self.rng.getstate()
         try:
             getattr(self, 'do_' + action)(**args)
+            self.record_score()
             self.check()
         except Exception:
             self.s, _ = before, self.rng.setstate(rng)
@@ -331,7 +410,7 @@ class Game:
         if type(tier) is not int or not 0 <= tier < len(MULE_TIERS):
             raise RuleError('Ugyldigt niveau.')
         self.pay(MULE_TIERS[tier][1])
-        mid = uuid.uuid4().hex[:8]
+        mid = self.entity_id()
         self.s['mules'].append(dict(id=mid, city=city, tier=tier, inventory={k: 0 for k in DRUGS},
                                     earned=0, cut_paid=0, lost=0, cooldown=0))
         self.log(f'{MULE_TIERS[tier][0]} mule hyret i {city}.')
@@ -363,7 +442,7 @@ class Game:
         if len(self.s['assets']) >= 6:
             raise RuleError('Du kan højst eje seks virksomheder.')
         self.pay(ASSETS[tier][1], 'clean')
-        self.s['assets'].append(dict(id=uuid.uuid4().hex[:8], tier=tier, queue=[], converted=0, income=0))
+        self.s['assets'].append(dict(id=self.entity_id(), tier=tier, queue=[], converted=0, income=0))
         self.log(f'{ASSETS[tier][0]} købt for lovlige penge.')
 
     def asset(self, aid):
@@ -426,7 +505,7 @@ class Game:
                 continue
             if not sum(m['inventory'].values()):
                 continue
-            if self.rng.random() < MULE_RISK:
+            if self.rng.random() < mule_risk(sum(m['inventory'].values())):
                 lost = 0
                 for k, n in m['inventory'].items():
                     loss = (n + 3) // 4
@@ -478,8 +557,7 @@ class Game:
         self.log(self.s['last_summary'])
         if self.s['market_event']:
             self.log(self.s['market_event'])
-        self.s['history'].append(dict(day=self.s['day'], score=self.score))
-        risk = POLICE_BASE_CHANCE + self.s['heat'] / 500
+        risk = self.police_risk()
         overdue = self.s['day'] - self.s['last_police_day'] >= POLICE_MAX_GAP
         if self.rng.random() < risk or overdue:
             self.s['last_police_day'] = self.s['day']
@@ -513,9 +591,11 @@ class Game:
             self.confiscate()
             self.log('Du overgav dig. Varer og 25 % af sorte kontanter beslaglagt.')
         else:
-            chance = WEAPONS[self.s['weapon']][2] if choice == 'fight' else .65 - .002 * self.used / max(1, self.capacity) * 100
+            chance = WEAPONS[self.s['weapon']][2] if choice == 'fight' else self.run_chance
             success = self.rng.random() < chance
             damage = self.rng.randint(3, 14) if success else self.rng.randint(20, 45)
+            if self.tip_active and choice=='run' and not success:
+                damage=min((damage+1)//2,max(0,self.s['health']-1))
             self.s['health'] = max(0, self.s['health'] - damage)
             if not success:
                 self.confiscate()
@@ -538,6 +618,7 @@ class Game:
         self.s['reason'] = reason
         self.s['police'] = False
         self.log(f'{reason} Slutscore: {money(self.score)}')
+        self.record_score()
 
     def public_score(self):
         # Future public leaderboard projection intentionally excludes black assets.
@@ -553,8 +634,11 @@ class Game:
         for key in ('last_market_event_day','last_police_day'):
             if type(s[key]) is not int or not 1 <= s[key] <= s['day']:
                 raise RuleError('Ugyldig hændelseshistorik.')
-        if not isinstance(s['day_events'], list) or len(s['day_events']) > 2:
+        if not isinstance(s['day_events'], list) or len(s['day_events']) > 3:
             raise RuleError('Ugyldige dagshændelser.')
+        for key in ('tip_until_day','tip_cooldown_until','entity_seq'):
+            if type(s.get(key,0)) is not int or not 0<=s.get(key,0)<=10**12:raise RuleError('Ugyldig tip- eller identitetshistorik.')
+        if s.get('market_seed') is not None and (not isinstance(s['market_seed'],str) or len(s['market_seed'])>100):raise RuleError('Ugyldigt fælles marked.')
         if set(s['cost']) != set(DRUGS):raise RuleError('Ugyldige indkøbspriser.')
         for o in s['washing']:
             if not (0 <= o['tier'] < len(WASH_OPTIONS)):raise RuleError('Spiltilstanden er ugyldig eller beskadiget.')
@@ -595,8 +679,11 @@ class Game:
         def tuples(x):
             return tuple(map(tuples, x)) if isinstance(x, list) else x
         d = json.loads(Path(path).read_text(encoding='utf-8'))
-        if d['state'].get('schema') != 1 or d['state'].get('ruleset') not in ('bft-1', 'bft-2', 'bft-3', 'bft-4', RULESET):
+        if d['state'].get('schema') != 1 or d['state'].get('ruleset') not in ('bft-1', 'bft-2', 'bft-3', 'bft-4', 'bft-5', RULESET):
             raise RuleError('Denne gemte fil bruger en anden spilversion.')
+        if d['state'].get('ruleset')!=RULESET:
+            backup=Path(path).with_suffix('.pre-v1.2.json')
+            if not backup.exists():backup.write_text(json.dumps(d,ensure_ascii=False),encoding='utf-8')
         g = cls()
         g.s = d['state']
         g.upgrade_events()
@@ -618,4 +705,8 @@ class Game:
         self.s.setdefault('last_police_day', self.s['day'])
         self.s.setdefault('day_events', [])
         self.s.setdefault('market_event_detail', None)
+        self.s.setdefault('tip_until_day',0)
+        self.s.setdefault('tip_cooldown_until',0)
+        self.s.setdefault('market_seed',None)
+        self.s.setdefault('entity_seq',0)
         self.s['ruleset'] = RULESET

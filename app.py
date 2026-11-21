@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QVBox
     QHeaderView, QAbstractItemView, QProgressBar)
 from game import (Game, RuleError, new_game, money, demand, VERSION, RULESET, DRUGS,
                   CITIES, DISTRICTS, area_description, DURATIONS, BAGS, WEAPONS, MULE_TIERS, ASSETS,
-                  OBSERVED, SOURCE, LATEST_SOURCE, WASH_OPTIONS)
+                  OBSERVED, SOURCE, LATEST_SOURCE, WASH_OPTIONS, mule_risk)
 
 from visuals import drug_icon
 
@@ -191,9 +191,11 @@ class Window(QMainWindow):
         self.event_dialog = None
         self._event_key = None
         self.police_open = False
+        self.police_dialog = None
+        self.update_police_preview = None
         self.setWindowTitle(APP_NAME)
-        self.resize(880, 730)
-        self.setMinimumSize(800, 690)
+        self.resize(880, 780)
+        self.setMinimumSize(800, 720)
         self.setWindowIcon(make_icon())
         self.main = QWidget()
         self.setCentralWidget(self.main)
@@ -317,51 +319,54 @@ class Window(QMainWindow):
         QTimer.singleShot(0, self.present_day_events)
 
     def present_day_events(self):
-        """One acknowledgement per day; shared by solo and repeated LAN polls."""
+        """Acknowledge each notice once, including a tip arriving on the same day."""
         if not self.g or not self.isVisible() or self.event_dialog or self.police_open:
             return
         key = (self.g.s['id'], self.g.s['day'])
         if key != self._event_key:
             self._event_key = key
-            events = self.g.s.get('day_events', [])
-            if events:
-                d = QDialog(self)
-                self.event_dialog = d
-                d.setObjectName('dayEvents')
-                d.setWindowTitle(f"Dag {self.g.s['day']} · Hændelser")
-                d.setWindowModality(Qt.WindowModality.WindowModal)
-                d.setFixedWidth(530)
-                lay = QVBoxLayout(d)
-                lay.setContentsMargins(24, 24, 24, 24)
-                lay.setSpacing(16)
-                lay.addWidget(label('Dagens hændelser', 'title'))
-                lay.addWidget(label(f"{self.g.s['city']} · {DISTRICTS[self.g.s['city']][self.g.s['district']]}", 'muted'))
-                for event in events:
-                    card = QFrame(); card.setObjectName('card')
-                    content = QVBoxLayout(card); content.setContentsMargins(16, 14, 16, 14)
-                    content.setSpacing(10)
-                    if event['kind'] == 'market':
-                        icon = QLabel(); icon.setPixmap(drug_icon(event['drug']).pixmap(40, 40))
-                        content.addWidget(row(icon, label(event['title'], 'section'), 1))
-                        content.addWidget(label(event['text']))
-                        price = label(f"{DRUGS[event['drug']][0]}  {event['change']:+d} %", 'title')
-                        price.setStyleSheet('color: ' + ('#26724d' if event['change'] < 0 else '#a23f3f'))
-                        content.addWidget(price)
-                        content.addWidget(label(f"{money(event['before'])} → {money(event['price'])} pr. enhed", 'section'))
-                        content.addWidget(label('Dagens pris gælder både køb og salg. Prisen ændres igen, når du rejser eller går til næste dag.', 'muted'))
-                    else:
-                        content.addWidget(label(event['title'], 'section'))
-                        content.addWidget(label(event['text']))
-                        content.addWidget(label('GREEN CARD  ·  50 % chance ved næste forklaring', 'profit'))
-                    lay.addWidget(card)
-                lay.addWidget(button('Fortsæt til politikontrol' if self.g.s['police'] else 'Til markedet', d.accept, 'primary'))
-                def acknowledged(_):
-                    self.event_dialog = None
-                    d.deleteLater()
-                    QTimer.singleShot(0, self.present_day_events)
-                d.finished.connect(acknowledged)
-                d.open()
-                return
+            self._seen_notices = set()
+        events = [e for e in self.g.s.get('day_events', [])
+                  if json.dumps(e, sort_keys=True) not in self._seen_notices]
+        if events:
+            self._seen_notices.update(json.dumps(e, sort_keys=True) for e in events)
+            d = QDialog(self)
+            self.event_dialog = d
+            d.setObjectName('dayEvents')
+            d.setWindowTitle(f"Dag {self.g.s['day']} · Hændelser")
+            d.setWindowModality(Qt.WindowModality.WindowModal)
+            d.setFixedWidth(530)
+            lay = QVBoxLayout(d)
+            lay.setContentsMargins(24, 24, 24, 24)
+            lay.setSpacing(16)
+            lay.addWidget(label('Dagens hændelser', 'title'))
+            lay.addWidget(label(f"{self.g.s['city']} · {DISTRICTS[self.g.s['city']][self.g.s['district']]}", 'muted'))
+            for event in events:
+                card = QFrame(); card.setObjectName('card')
+                content = QVBoxLayout(card); content.setContentsMargins(16, 14, 16, 14)
+                content.setSpacing(10)
+                if event['kind'] == 'market':
+                    icon = QLabel(); icon.setPixmap(drug_icon(event['drug']).pixmap(40, 40))
+                    content.addWidget(row(icon, label(event['title'], 'section'), 1))
+                    content.addWidget(label(event['text']))
+                    price = label(f"{DRUGS[event['drug']][0]}  {event['change']:+d} %", 'title')
+                    price.setStyleSheet('color: ' + ('#26724d' if event['change'] < 0 else '#a23f3f'))
+                    content.addWidget(price)
+                    content.addWidget(label(f"{money(event['before'])} → {money(event['price'])} pr. enhed", 'section'))
+                    content.addWidget(label('Dagens pris gælder både køb og salg. Prisen ændres igen, når du rejser eller går til næste dag.', 'muted'))
+                else:
+                    content.addWidget(label(event['title'], 'section'))
+                    content.addWidget(label(event['text']))
+                    if event['kind']=='clear_police':content.addWidget(label('GREEN CARD  ·  50 % chance ved næste forklaring', 'profit'))
+                lay.addWidget(card)
+            lay.addWidget(button('Fortsæt til politikontrol' if self.g.s['police'] else 'Til markedet', d.accept, 'primary'))
+            def acknowledged(_):
+                self.event_dialog = None
+                d.deleteLater()
+                QTimer.singleShot(0, self.present_day_events)
+            d.finished.connect(acknowledged)
+            d.open()
+            return
         if self.g.s['police']:
             self.police_open = True
             try:
@@ -385,9 +390,19 @@ class Window(QMainWindow):
         lay.setContentsMargins(28, 28, 28, 28)
         lay.setSpacing(18)
         lay.addWidget(label('Et møde, du ikke planlagde.', 'title'))
-        chance = round(WEAPONS[self.g.s['weapon']][2] * 100)
-        escape = round((.65 - .2 * self.g.used / self.g.capacity) * 100)
-        lay.addWidget(label(f'Helbred: {self.g.s["health"]} / 100\nVåben: {WEAPONS[self.g.s["weapon"]][0]}\nKampchance: {chance} % · Flugtchance: {escape} %', 'muted'))
+        chances=label('', 'muted');chances.setObjectName('police_chances');lay.addWidget(chances)
+        tip_note=label('', 'section');tip_note.setObjectName('police_tip');lay.addWidget(tip_note)
+        def refresh_preview():
+            # TIP-7: another player may tip us while this modal is already open.
+            # Never keep displaying the old odds or act after a host-issued DNF.
+            if not self.g.s['police'] or self.g.s['finished']:
+                d.reject();return
+            chance=round(WEAPONS[self.g.s['weapon']][2]*100)
+            escape=round(self.g.run_chance*100)
+            chances.setText(f'Helbred: {self.g.s["health"]} / 100\nVåben: {WEAPONS[self.g.s["weapon"]][0]}\nKampchance: {chance} % · Flugtchance: {escape} %')
+            tip_note.setText('Tippet til dag '+str(self.g.s.get('tip_until_day',0))+' · Mislykket flugt giver halv skade og kan ikke dræbe dig.')
+            tip_note.setVisible(self.g.tip_active)
+        self.police_dialog=d;self.update_police_preview=refresh_preview;refresh_preview()
         lay.addWidget(label('Overgivelse koster alle dine varer og 25 % af dine sorte kontanter. Dine bankpenge og lovlige aktiver er sikre. Kamp og flugt kan koste helbred.'))
         if self.g.s['green_card']:
             lay.addWidget(label('Green card: Forklar dig med 50 % chance. Kortet bruges op. Ved afslag mister du varer og 25 % af sorte kontanter; ingen helbredsskade.'))
@@ -401,10 +416,13 @@ class Window(QMainWindow):
         if self.g.s['green_card']:
             lay.addWidget(button('Brug green card · forklar dig (50 %)', lambda: pick('explain'), 'primary'))
         lay.addWidget(label('Lukker du dette vindue, overgiver du dig.', 'muted'))
-        d.exec()
-        self.act('police', choice=choice[0])
+        try:d.exec()
+        finally:
+            self.police_dialog=None;self.update_police_preview=None;d.deleteLater()
+        if self.g.s['police'] and not self.g.s['finished']:self.act('police', choice=choice[0])
 
     def render(self):
+        if self.update_police_preview:self.update_police_preview()
         while self.ml.count():
             item = self.ml.takeAt(0)
             if item.widget():
@@ -544,10 +562,16 @@ class Window(QMainWindow):
         totalsrow=QWidget();trl=QHBoxLayout(totalsrow);trl.setContentsMargins(0,0,0,0)
         trl.addWidget(self.buy_total,1);trl.addWidget(self.sell_total,1);self.ml.addWidget(totalsrow)
         market_note=label(s['market_event'] or 'Samme pris ved køb og salg. Rejs eller vent for nye priser.', 'section' if s['market_event'] else 'muted')
+        market_note.setWordWrap(False)
         detail=s.get('market_event_detail')
         market_note.setToolTip(detail['text'] if detail else 'Prisprofiler og markedsbegivenheder er fiktive spilregler.')
         card_note=label('Green card: klar · 50 %' if s['green_card'] else 'Green card: —','profit' if s['green_card'] else 'muted',False)
         self.ml.addWidget(row(market_note,1,card_note))
+        risk_note=('Næste dags kontrol: '+str(round(self.g.police_risk(next_day=True)*100))+' %') if s['day']<s['duration'] else 'Sidste spildag'
+        risk_note+=' · Heat '+str(s['heat'])+'/100'
+        if self.g.tip_active:risk_note+=' · Tippet til dag '+str(s['tip_until_day'])
+        if not s['finished']:
+            risk=label(risk_note,'muted');risk.setObjectName('police_risk');self.ml.addWidget(risk)
         score = label('Offentlig score: ' + money(self.g.score), 'section', False)
         score.setToolTip('Lovlige penge + aktivernes salgsværdi − gæld. Sorte penge tæller ikke.')
         nextday = button('Afslut spillet' if s['day'] == s['duration'] else 'Næste dag',
@@ -684,7 +708,7 @@ class Window(QMainWindow):
             hire.setEnabled(not self.g.s['finished'] and len(self.g.s['mules'])<6 and self.g.s['black']>=MULE_TIERS[tier.currentData()][1])
         tier.currentIndexChanged.connect(can_hire);can_hire()
         l.addWidget(hire)
-        l.addWidget(label('Tilbagefald: 0,1 % pr. aktiv salgsdag. Det koster 25 % af lageret (oprundet) og to dages pause. Over 365 aktive dage er risikoen for mindst én hændelse ca. 31 %.', 'muted'))
+        l.addWidget(label('Større lager giver større risiko for tilbagefald: 0,1 % + 0,005 procentpoint pr. enhed, højst 2,6 % pr. aktiv dag. Et tilbagefald koster 25 % af lageret (oprundet) og to dages pause.', 'muted'))
         self.bl.addWidget(c)
         if not self.g.s['mules']:
             self.bl.addWidget(label('Dit netværk starter med din første ansættelse.', 'muted'))
@@ -693,6 +717,8 @@ class Window(QMainWindow):
             c, l = card(f'{m["city"]} · {name}', f'{volume} enheder/dag · {cut} % af omsætningen · indtjent efter cut: {money(m["earned"])}')
             stock = '  ·  '.join(f'{DRUGS[k][0]} {v}' for k,v in m['inventory'].items() if v) or 'Intet på lager'
             l.addWidget(label(stock))
+            units=sum(m['inventory'].values())
+            l.addWidget(label(('Risiko ved næste salg: '+f'{mule_risk(units)*100:.2f}'.replace('.',',')+' %') if units else 'Intet lager · ingen risiko for tilbagefald', 'muted'))
             if m['cooldown']:
                 l.addWidget(label(f'Pause: {m["cooldown"]} dage tilbage', 'muted'))
             drug, qty = QComboBox(), spin(500)

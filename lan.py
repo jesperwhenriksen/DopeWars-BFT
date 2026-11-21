@@ -2,8 +2,8 @@
 import copy, datetime, hashlib, hmac, http.client, inspect, json, secrets, socket, sqlite3, ssl, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from game import Game, new_game, RULESET, DURATIONS, RuleError, ASSETS
-PROTOCOL='bft-lan-3'
+from game import Game, new_game, RULESET, DURATIONS, RuleError, ASSETS, VERSION
+PROTOCOL='bft-lan-4'
 LIMIT=262144
 
 def tuples(v):return tuple(map(tuples,v)) if isinstance(v,list) else v
@@ -53,30 +53,59 @@ def save_credentials(path, value):
 def load_credentials(path):return json.loads(protect(Path(path).read_bytes(),True))
 
 class Session:
-    def __init__(self,path,days=31,name='BFT-aften'):
+    def __init__(self,path,days=31,name='BFT-aften',options=None):
         self.path=Path(path);self.path.parent.mkdir(parents=True,exist_ok=True)
-        self.lock=threading.RLock();self.seen={}
+        self.lock=threading.RLock();self.seen={};self.presence={}
+        self.generation=secrets.token_hex(8);self.lobby_version=0
         self.db=sqlite3.connect(str(path),check_same_thread=False)
+        try:self.initialize(days,name,options)
+        except Exception:self.db.close();raise
+    def initialize(self,days,name,options):
         self.db.execute('PRAGMA journal_mode=WAL');self.db.execute('PRAGMA synchronous=FULL')
         self.db.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, data TEXT NOT NULL)')
         row=self.db.execute('SELECT data FROM state WHERE id=1').fetchone()
         if row:self.s=json.loads(row[0])
         else:
             if days not in DURATIONS:raise ValueError('Ugyldig tidshorisont')
-            self.s=dict(protocol=PROTOCOL,ruleset=RULESET,id=secrets.token_hex(16),name=name[:40],days=days,started=False,code=secrets.token_urlsafe(16),owner=secrets.token_urlsafe(32),players={},receipts={})
+            settings=dict(allow_tips=False,shared_market=True)
+            if options is not None:
+                if not isinstance(options,dict) or set(options)!=set(settings) or any(type(v) is not bool for v in options.values()):raise ValueError('Ugyldige lobbyindstillinger.')
+                settings.update(options)
+            self.s=dict(protocol=PROTOCOL,ruleset=RULESET,id=secrets.token_hex(16),name=name[:40],days=days,started=False,code=secrets.token_urlsafe(16),owner=secrets.token_urlsafe(32),players={},receipts={},options=settings,events=[],next_event_id=1,seed=secrets.token_hex(32))
             self.commit()
-        if self.s['protocol'] in ('bft-lan-1','bft-lan-2') and self.s['ruleset']=='bft-4':
-            backup=self.path.with_suffix('.pre-v1.1.json')
+        if self.s['protocol'] in ('bft-lan-1','bft-lan-2','bft-lan-3') and self.s['ruleset'] in ('bft-4','bft-5'):
+            backup=self.path.with_suffix('.pre-v1.2.json')
             if not backup.exists():backup.write_text(json.dumps(self.s),encoding='utf-8')
+            self.s['receipt_protocols']=[self.s['protocol']]
             for p in self.s['players'].values():
                 if p['state']:
                     g=self.game(p);g.upgrade_events();g.check();p['state']=g.s
-            self.s.update(protocol=PROTOCOL,ruleset=RULESET);self.commit()
-        if self.s['protocol']!=PROTOCOL or self.s['ruleset']!=RULESET:raise ValueError('Sessionen bruger en anden LAN-version.')
+            # Old rounds retain personal markets. No reroll, reseeding or tips.
+            self.s.update(protocol=PROTOCOL,ruleset=RULESET,options=dict(allow_tips=False,shared_market=False),events=[],next_event_id=1,seed=secrets.token_hex(32));self.commit()
+        if self.s['protocol']!=PROTOCOL or self.s['ruleset']!=RULESET:raise ValueError(f'Sessionen bruger en anden LAN-version. Opdater alle til version {VERSION}.')
     def commit(self):
         with self.db:self.db.execute('INSERT OR REPLACE INTO state VALUES (1,?)',(json.dumps(self.s,ensure_ascii=False),))
     def game(self,p):
         g=Game();g.s=copy.deepcopy(p['state']);g.rng.setstate(tuples(p['rng']));return g
+    def presence_version(self):
+        current={k:time.monotonic()-self.seen.get(k,-100)<15 for k in self.s['players']}
+        if current!=self.presence:self.presence=current;self.lobby_version+=1
+        return self.generation+':'+str(self.lobby_version)
+    def event(self,kind,player,**data):
+        # LAN-2 / NFR-2: an explicit allowlist makes private data impossible here.
+        fields={'finished':{'score'},'milestone':{'percent'},'first_asset':set(),'dnf':set(),'tip':set()}
+        if kind not in fields or set(data)!=fields[kind]:raise ValueError('Ugyldig offentlig hændelse.')
+        e=dict(id=self.s['next_event_id'],timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),type=kind,player_id=player['id'],data=data)
+        self.s['next_event_id']+=1;self.s['events'].append(e);self.s['events']=self.s['events'][-50:]
+    def game_events(self,p,before):
+        state=p['state']
+        milestones=p.setdefault('milestones',[])
+        for percent in (25,50,75):
+            if (before['day']-1)*100 < percent*(state['duration']-1) <= (state['day']-1)*100 and percent not in milestones:
+                self.event('milestone',p,percent=percent);milestones.append(percent)
+        if not before['assets'] and state['assets'] and not p.get('first_asset_announced'):
+            self.event('first_asset',p);p['first_asset_announced']=True
+        if not before['finished'] and state['finished']:self.event('finished',p,score=state['clean']+sum(ASSETS[a['tier']][1]*60//100 for a in state['assets'])-state['debt'])
     def dispatch(self,m):
         with self.lock:
             if getattr(self,'closed',False):raise ValueError('Værten lukker sessionen.')
@@ -84,14 +113,19 @@ class Session:
             before=copy.deepcopy(self.s)
             try:
                 result=self.handle(m)
-                if self.s!=before:self.commit()
+                if self.s!=before:self.lobby_version+=1;self.commit()
+                if isinstance(result,dict) and 'session' in result:result['lobby_version']=self.presence_version()
                 return result
             except Exception:
                 self.s=before
                 raise
     def handle(self,m):
-        if not isinstance(m,dict) or m.get('protocol')!=PROTOCOL:raise ValueError('Forkert LAN-version.')
+        if not isinstance(m,dict) or m.get('protocol')!=PROTOCOL:raise ValueError(f'Forkert LAN-version. Alle skal bruge Dope Wars BFT {VERSION}.')
         op=m.get('op')
+        if op=='info':
+            if not hmac.compare_digest(str(m.get('code','')),self.s['code']):raise ValueError('Forkert invitation.')
+            if self.s['started']:raise ValueError('Spillet er startet. Genoptag din gemte session.')
+            return dict(preview=True,name=self.s['name'],days=self.s['days'],options=copy.deepcopy(self.s['options']))
         if op=='join':
             if not hmac.compare_digest(str(m.get('code','')),self.s['code']):raise ValueError('Forkert invitation.')
             token=m.get('token');key=hashlib.sha256(str(token).encode()).hexdigest()
@@ -108,12 +142,17 @@ class Session:
         key=hashlib.sha256(str(m.get('token','')).encode()).hexdigest()
         if key not in self.s['players']:raise ValueError('Forbind igen med din gemte invitation.')
         p=self.s['players'][key];self.seen[key]=time.monotonic()
-        if op=='poll':return self.view(key)
+        if op=='poll':
+            version=self.presence_version();since=m.get('since')
+            if isinstance(since,dict) and since.get('revision')==p['revision'] and since.get('lobby_version')==version:return {'unchanged':True}
+            return self.view(key)
         rid=m.get('request_id')
         if not isinstance(rid,str) or len(rid)!=32:raise ValueError('Ugyldigt request-id.')
         receipt_key=key+':'+rid;payload=hashlib.sha256(json.dumps(m,sort_keys=True).encode()).hexdigest()
         if receipt_key in self.s['receipts']:
-            if self.s['receipts'][receipt_key]!=payload:raise ValueError('Genbrugt request-id med andet indhold.')
+            stored=self.s['receipts'][receipt_key]
+            legacy=[hashlib.sha256(json.dumps(dict(m,protocol=old),sort_keys=True).encode()).hexdigest() for old in self.s.get('receipt_protocols',[])]
+            if stored!=payload and stored not in legacy:raise ValueError('Genbrugt request-id med andet indhold.')
             return self.view(key)
         if op=='ready':
             if self.s['started']:raise ValueError('Spillet er startet.')
@@ -122,7 +161,7 @@ class Session:
             if not p['owner'] or self.s['started']:raise ValueError('Kun værten kan starte én gang.')
             if len(self.s['players'])<2 or not all(x['ready'] and time.monotonic()-self.seen.get(k,-100)<15 for k,x in self.s['players'].items()):raise ValueError('Mindst to spillere; alle skal være klar og online.')
             for x in self.s['players'].values():
-                g=new_game(x['name'],days=self.s['days'],seed=secrets.randbits(256));x.update(state=g.s,rng=g.rng.getstate())
+                g=new_game(x['name'],days=self.s['days'],seed=secrets.randbits(256),market_seed=self.s['seed'] if self.s['options']['shared_market'] else None);x.update(state=g.s,rng=g.rng.getstate())
             self.s['started']=True
         elif op=='retire':
             if not p['owner']:raise ValueError('Kun værten kan fjerne en spiller.')
@@ -135,6 +174,7 @@ class Session:
                 if target['state']['finished']:raise ValueError('Spilleren er allerede afsluttet.')
                 g=self.game(target);g.finish('Værten markerede spilleren som opgivet (DNF).')
                 target.update(state=g.s,rng=g.rng.getstate(),revision=target['revision']+1,dnf=True)
+                self.event('dnf',target)
         elif op=='leave':
             if self.s['started']:raise ValueError('Brug Afslut for at afslutte spillet.')
             if p['owner']:raise ValueError('Værten skal lukke lobbyen.')
@@ -144,43 +184,68 @@ class Session:
             if not self.s['started']:raise ValueError('Spillet er ikke startet.')
             if type(m.get('revision')) is not int or m.get('revision')!=p['revision']:raise ValueError('Spillet blev opdateret. Kontrollér den aktuelle pris og prøv igen.')
             action=m.get('action');args=m.get('args')
-            allowed={'buy','sell','travel','wait','bag','weapon','bank','hire','dispatch','dismiss','asset','fund','sell_asset','heal','police','finish','wash'}
+            allowed={'buy','sell','travel','wait','bag','weapon','bank','hire','dispatch','dismiss','asset','fund','sell_asset','heal','police','finish','wash','tip'}
             if action not in allowed or not isinstance(args,dict):raise ValueError('Ugyldig handling.')
+            if action=='tip':
+                self.tip(p,args)
+                self.s['receipts'][receipt_key]=payload
+                return self.view(key)
             g=self.game(p)
             inspect.signature(getattr(g,'do_'+action)).bind(**args)
             for k,v in args.items():
                 if k in ('amount','qty','tier','district'):
                     if type(v) is not int or abs(v)>10**12:raise ValueError('Ugyldigt tal.')
                 elif type(v) is not str or len(v)>100:raise ValueError('Ugyldigt argument.')
-            g.execute(action,**args)
+            previous=p['state'];g.execute(action,**args)
             p.update(state=g.s,rng=g.rng.getstate(),revision=p['revision']+1)
+            self.game_events(p,previous)
         else:raise ValueError('Ukendt netværkshandling.')
         self.s['receipts'][receipt_key]=payload
         return self.view(key)
+    def tip(self,p,args):
+        from game import TIP_DAYS,TIP_COOLDOWN,tip_cost
+        if set(args)!={'target'} or not isinstance(args['target'],str):raise RuleError('Vælg en gyldig spiller.')
+        if not self.s['options']['allow_tips']:raise RuleError('Politi-tip er slået fra i denne lobby.')
+        g=self.game(p);g.require_active()
+        target=next((x for x in self.s['players'].values() if x['id']==args['target']),None)
+        if target is None or target is p or target.get('dnf') or target['state']['finished']:raise RuleError('Denne spiller kan ikke tippes.')
+        other=self.game(target)
+        if other.tip_active:raise RuleError('Politiet har allerede et aktivt tip om spilleren.')
+        if g.s['day']<g.s.get('tip_cooldown_until',0):raise RuleError('Du kan først tippe igen på dag '+str(g.s['tip_cooldown_until'])+'.')
+        cost=tip_cost(g.s['black']);g.pay(cost)
+        g.s['tip_cooldown_until']=g.s['day']+TIP_COOLDOWN
+        g.log('Du har sendt et anonymt tip. Det kostede '+__import__('game').money(cost)+'.')
+        other.s['tip_until_day']=other.s['day']+TIP_DAYS
+        other.log('Politiet har fået et tip. Tippet til dag '+str(other.s['tip_until_day'])+'.')
+        other.s['day_events'].append(dict(kind='tip',title='Politiet har fået et tip',text='Flere kontroller og sværere flugt til og med dag '+str(other.s['tip_until_day'])+'. Afsenderen er ukendt.',day=other.s['day']))
+        g.check();other.check()
+        p.update(state=g.s,revision=p['revision']+1)
+        target.update(state=other.s,revision=target['revision']+1)
+        self.event('tip',target)
     def view(self,key):
         public=[]
         for k,p in self.s['players'].items():
             online=time.monotonic()-self.seen.get(k,-100)<15
             v=dict(id=p['id'],name=p['name'],owner=p['owner'],ready=p['ready'],online=online,dnf=p.get('dnf',False))
             if p['state']:
-                st=p['state'];assets=sum(ASSETS[a['tier']][1]*60//100 for a in st['assets']);v.update(day=st['day'],bank=st['clean'],assets=assets,debt=st['debt'],score=st['clean']+assets-st['debt'],finished=st['finished'])
+                st=p['state'];assets=sum(ASSETS[a['tier']][1]*60//100 for a in st['assets']);v.update(day=st['day'],bank=st['clean'],assets=assets,debt=st['debt'],score=st['clean']+assets-st['debt'],finished=st['finished'],history=[dict(day=h['day'],score=h['score']) for h in st['history'] if type(h.get('day')) is int and type(h.get('score')) is int])
             public.append(v)
-        p=self.s['players'][key];original=p['state'];state=copy.deepcopy({k:v for k,v in original.items() if k not in ('markets','log','history')}) if original else None
+        p=self.s['players'][key];original=p['state'];state=copy.deepcopy({k:v for k,v in original.items() if k not in ('markets','log','history','market_seed')}) if original else None
         if state:
             market=copy.deepcopy(original['markets'][state['city']][state['district']])
             state['markets']={state['city']:[{} for _ in range(6)]};state['markets'][state['city']][state['district']]=market
             for order in state['washing']:order.pop('ready',None)
             state['log']=original['log'][:30];state['history']=[]
-        return dict(session=self.s['id'],name=self.s['name'],days=self.s['days'],started=self.s['started'],players=public,me=p['id'],revision=p['revision'],state=state,complete=self.s['started'] and all(x['state']['finished'] for x in self.s['players'].values()))
+        return dict(session=self.s['id'],name=self.s['name'],days=self.s['days'],started=self.s['started'],options=copy.deepcopy(self.s['options']),events=copy.deepcopy(self.s['events'][-20:]),lobby_version=self.presence_version(),players=public,me=p['id'],revision=p['revision'],state=state,complete=self.s['started'] and all(x['state']['finished'] for x in self.s['players'].values()))
 
 class Server:
-    def __init__(self,directory,days=31,name='BFT-aften',port=47652,bind='0.0.0.0'):
+    def __init__(self,directory,days=31,name='BFT-aften',port=47652,bind='0.0.0.0',options=None):
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes,serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.x509.oid import NameOID
         directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
-        self.session=Session(directory/'session.sqlite',days,name)
+        self.connections=set();self.connection_lock=threading.Lock();self.handshakes=0
         pem=directory/'certificate.pem';private=directory/'key.dpapi'
         if not pem.exists() or not private.exists():
             key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
@@ -191,12 +256,14 @@ class Server:
         self.fingerprint=hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem.read_text())).hexdigest()
         owner=self
         class Handler(BaseHTTPRequestHandler):
+            protocol_version='HTTP/1.1'
             def log_message(self,*a):pass
             def do_POST(self):
                 self.connection.settimeout(5)
                 try:
                     n=int(self.headers.get('Content-Length','0'))
-                    if not 0<n<=LIMIT:raise ValueError('Beskeden er for stor.')
+                    if not 0<n<=LIMIT:
+                        self.close_connection=True;raise ValueError('Beskeden er for stor.')
                     m=json.loads(self.rfile.read(n));result=owner.session.dispatch(m);response={'ok':True,'view':result}
                 except (ValueError,TypeError,KeyError,AssertionError) as e:response={'ok':False,'error':str(e)[:200]}
                 except Exception:response={'ok':False,'error':'Værten kunne ikke gemme handlingen. Prøv igen.'}
@@ -215,9 +282,14 @@ class Server:
                 try:
                     request.settimeout(5)
                     wrapped=context.wrap_socket(request,server_side=True)
+                    wrapped.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
+                    with owner.connection_lock:owner.connections.add(wrapped);owner.handshakes+=1
                     super().process_request_thread(wrapped,address)
                 except (OSError,ssl.SSLError):request.close()
-                finally:self.slots.release()
+                finally:
+                    with owner.connection_lock:
+                        if 'wrapped' in locals():owner.connections.discard(wrapped)
+                    self.slots.release()
         context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.minimum_version=ssl.TLSVersion.TLSv1_2
         temp=directory/'key-loading.pem'
         try:
@@ -227,6 +299,7 @@ class Server:
             with os.fdopen(fd,'wb') as f:f.write(protect(private.read_bytes(),True))
             context.load_cert_chain(str(pem),str(temp))
         finally:temp.unlink(missing_ok=True)
+        self.session=Session(directory/'session.sqlite',days,name,options)
         try:self.http=HTTP((bind,port),Handler)
         except Exception:self.session.db.close();raise
         self.port=self.http.server_address[1];self.closed=False
@@ -240,26 +313,50 @@ class Server:
         if self.closed:return
         self.closed=True
         if self.discovery:self.discovery.close()
+        with self.connection_lock:
+            for conn in list(self.connections):
+                try:conn.shutdown(socket.SHUT_RDWR)
+                except OSError:pass
+                conn.close()
         self.http.shutdown();self.http.server_close()
         with self.session.lock:
             self.session.closed=True;self.session.db.close()
 
+class RpcClient:
+    """LAN-3: serial, reusable HTTPS transport; pin checked before any payload."""
+    def __init__(self,timeout=2):
+        self.timeout=timeout;self.conn=None;self.invite=None;self.lock=threading.RLock()
+    def close(self):
+        with self.lock:
+            if self.conn:self.conn.close()
+            self.conn=None
+    def call(self,invite,message):
+        with self.lock:
+            host,port,fingerprint,code=invite.strip().split('|')
+            if self.invite!=invite:self.close();self.invite=invite
+            try:
+                if self.conn is None or self.conn.sock is None:
+                    self.close()
+                    context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT);context.check_hostname=False;context.verify_mode=ssl.CERT_NONE
+                    context.minimum_version=ssl.TLSVersion.TLSv1_2
+                    self.conn=http.client.HTTPSConnection(host,int(port),timeout=self.timeout,context=context)
+                    self.conn.connect()
+                    actual=hashlib.sha256(self.conn.sock.getpeercert(binary_form=True)).hexdigest()
+                    if not hmac.compare_digest(actual,fingerprint):raise ValueError('Værtens certifikat matcher ikke invitationen.')
+                body=dict(message,protocol=PROTOCOL)
+                if body.get('op') in ('join','info'):body['code']=code
+                self.conn.request('POST','/session',json.dumps(body).encode(),{'Content-Type':'application/json'})
+                response=self.conn.getresponse();data=response.read(LIMIT+1)
+                if len(data)>LIMIT or response.status!=200:raise ValueError('Ugyldigt serversvar.')
+                result=json.loads(data)
+                if not isinstance(result,dict) or type(result.get('ok')) is not bool:raise ValueError('Ugyldigt serversvar.')
+                return result
+            except Exception:self.close();raise
+
 def rpc(invite,message):
-    host,port,fingerprint,code=invite.strip().split('|')
-    context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT);context.check_hostname=False;context.verify_mode=ssl.CERT_NONE
-    context.minimum_version=ssl.TLSVersion.TLSv1_2
-    conn=http.client.HTTPSConnection(host,int(port),timeout=5,context=context)
-    try:
-        conn.connect()
-        actual=hashlib.sha256(conn.sock.getpeercert(binary_form=True)).hexdigest()
-        if not hmac.compare_digest(actual,fingerprint):raise ValueError('Værtens certifikat matcher ikke invitationen.')
-        body=dict(message,protocol=PROTOCOL)
-        if body.get('op')=='join':body['code']=code
-        conn.request('POST','/session',json.dumps(body).encode(),{'Content-Type':'application/json'})
-        response=conn.getresponse();data=response.read(LIMIT+1)
-        if len(data)>LIMIT:raise ValueError('For stort serversvar.')
-        return json.loads(data)
-    finally:conn.close()
+    client=RpcClient()
+    try:return client.call(invite,message)
+    finally:client.close()
 
 def addresses():
     values={'127.0.0.1'}

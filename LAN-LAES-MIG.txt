@@ -1,8 +1,10 @@
-DOPE WARS - BFT EDITION 1.1.0 / LAN MED VENNERNE
+DOPE WARS - BFT EDITION 1.3.0 / LAN MED VENNERNE
 
 HURTIG START
 1. Alle installerer samme version og starter spillet. Vælg LAN.
-2. Én skriver sit navn, vælger spildage og trykker Opret ny LAN-lobby.
+2. Én skriver sit navn, vælger spildage og lobbyregler og opretter en lobby.
+   Samme marked for alle er til, og Tillad anonyme politi-tip er fra som standard.
+   Værten kan ændre disse valg, før lobbyen oprettes. Alle ser dem før deltagelse.
 3. Hvis Windows spørger, tillad appen på jeres private lokalnet.
 4. Vennerne vælger lobbyen under Spil på dit lokalnet og trykker Deltag.
 5. Alle trykker Jeg er klar. Værten starter spillet. 2-8 spillere i alt.
@@ -17,10 +19,18 @@ Du handler og rejser i eget tempo. Din næste dag flytter ikke andres dag.
 Renter, mules og hvidvaskning følger din personlige spildag, ikke klokken.
 Samme spilregler og knapper bruges i singleplayer og LAN.
 Køb og salg sker til samme dagspris uden fradrag. Prisbegivenheder og
-politistop følger din egen dag og vises automatisk. De andre spilleres
-dage og private beholdninger påvirkes ikke af dine begivenheder.
+politistop følger din egen dag og vises automatisk. Med fælles marked har
+alle samme priser ved samme by, område og dag samt samme prisbegivenheder.
+Andre byer og områder kan stadig have andre priser. Politi, mules og bankens
+ventetid er personlige. Politi-tip kan påvirke en anden spiller, hvis værten
+har tilladt funktionen. Dine egne dage flytter aldrig en andens dag.
 
-Highscores viser LAN-stilling, personlig dag, bank, score og status.
+Highscores viser LAN-stilling, personlig dag, score, status og aktivitet.
+Sammenlign ved dag N viser hver spillers seneste score fra netop den dag.
+Har spilleren ikke nået dagen, vises Ingen placering/Ikke nået. Historikken
+deler kun dag og score. Aktivitet viser milepæle ved 25/50/75 %, første
+virksomhed, afslutning med score, DNF og anonyme politi-tip. De seneste
+20 hændelser vises; højst 50 gemmes. Kontanter, byer og varer indgår ikke.
 Score = bank + virksomhedernes salgsværdi - gæld. Samme score giver delt
 plads. Stillingen er foreløbig, indtil alle er afsluttet eller opgivet.
 Kontanter, varer og hvidvaskningsordrer sendes ikke til andre deltagere.
@@ -32,6 +42,20 @@ stå åbent, til alle er færdige. Værten kan markere en anden spiller som
 opgivet (DNF) fra stillingen. DNF får ingen vinderplacering.
 En allerede afsluttet spiller kan ikke fjernes for at ændre resultatet.
 
+POLITI-TIP (KUN HVIS VÆRTEN HAR TILLADT DET)
+Fra Highscores vælger du en modspiller og Tip politiet. Det koster 4 % af
+dine kontanter (oprundet), mindst 500 kr. Du skal vente 10 egne dage mellem
+tip. Målet får en privat advarsel og Tippet til dag N på markedsskærmen.
+Afsenderen står hverken i advarslen eller den fælles aktivitet. Værten er
+betroet og har adgang til alle spiltilstande og kvitteringer.
+
+Effekten varer til og med målets aktuelle dag + 5. Offline står dagene stille.
+Kontrolrisikoen stiger 20 procentpoint, og flugtchancen falder 20 procentpoint
+med mindst 15 % chance tilbage. Green card er stadig 50/50, og kampchancen
+er uændret. Mislykket flugt under tip giver halv skade (oprundet) og kan
+ikke sænke helbred under 1. Tip stables ikke. Afsluttede eller opgivne
+spillere kan ikke tippes. Funktionen findes ikke i singleplayer.
+
 GENFORBIND OG GENOPTAG
 Ved forbindelsesbrud fryser handlingsknapperne, mens appen forsøger igen.
 Kvitteringer på serveren forhindrer dobbeltkøb, hvis et netværkssvar mistes.
@@ -42,10 +66,16 @@ Gæster genforbinder automatisk, eller genoptager deres gemte session.
 Flere sessioner huskes i listen. En mislykket tilslutning overskriver ikke
 en tidligere fungerende forbindelse.
 
-Hvis værtens IP-adresse ændres: Værten genoptager og kopierer en frisk
-reserveinvitation. Gæsten viser invitationsfeltet, indsætter invitationen,
-vælger den gemte session og trykker Genoptag valgt session.
-Certifikatidentiteten skal stadig matche. Vælg ikke en ny spilleridentitet.
+Hvis værtens IP-adresse eller port ændres, søger gæsten automatisk efter
+tre forbindelsesfejl. Den matcher både session-id og gemt certifikat,
+verificerer TLS og gemmer den nye adresse. Status viser Værten er fundet igen.
+Startede sessioner annoncerer identitet, men aldrig tilslutningskoden.
+
+Hvis broadcast er blokeret, kan værten stadig kopiere en frisk reserveinvitation.
+Gæsten viser invitationsfeltet, indsætter den, vælger sin gemte session og
+trykker Genoptag valgt session. Identiteten skal stadig matche.
+Vælg ikke en ny spilleridentitet. En flytning til et isoleret andet netværk
+kan ikke løses med automatisk søgning; pc'erne skal kunne nå hinanden.
 Efter start kan der ikke tilføjes nye deltagere. Der er ingen automatisk
 værtsflytning til en anden pc eller import fra singleplayer.
 
@@ -59,8 +89,8 @@ Automatisk søgning bruger IPv4 UDP-broadcast. Manuel invitation kan bruges,
 hvis broadcast alene er blokeret. Kun én værtsinstans pr. pc på standardporten.
 
 Åbne lobbyer kan ses og tilsluttes på lokalnettet. Første forbindelse stoler
-på den annoncerede certifikatidentitet; derefter kontrolleres den ved hvert
-kald. Brug funktionen på jeres betroede lokalnet med vennerne.
+på den annoncerede certifikatidentitet; derefter kontrolleres den før data sendes ved hver ny
+TLS-forbindelse. Forbindelsen genbruges; klienten spørger hvert sekund. Brug funktionen på jeres betroede lokalnet med vennerne.
 Spillet åbner ikke routerporte eller ændrer firewallregler automatisk.
 
 DATA OG OPDATERING
@@ -69,10 +99,15 @@ Sessionen indeholder spiltilstande, tilfældighedstilstand, kvitteringer og resu
 Luk værten, før sessionmappen kopieres; -wal/-shm-filer kan være i brug.
 client.dpapi og client-connections gemmer forbindelser beskyttet med Windows
 DPAPI. Nøglerne er bundet til din Windows-bruger/pc. Genoptag fra samme bruger.
+På Linux ligger mappen under ~/.local/share/BFT-DopeWars eller XDG_DATA_HOME.
+Forbindelser beskyttes med AES-GCM og linux-protect.key (0600); behold
+nøglefilen sammen med sikkerhedskopien.
 Singleplayers save.json og highscores.json ændres ikke af LAN-spillet.
-Opdater alle deltagere til 1.1.0 samtidigt. Sessioner med regelsæt bft-4
-og LAN-protokol bft-lan-1/-2 opgraderes automatisk til bft-5/bft-lan-3.
-Den oprindelige session gemmes først som session.pre-v1.1.json ved databasen.
+Opdater alle deltagere til 1.3.0 samtidigt. Sessioner med regelsæt bft-4/-5
+og LAN-protokol bft-lan-1/-2/-3 opgraderes automatisk til bft-6/bft-lan-4.
+Den oprindelige session gemmes først som session.pre-v1.2.json ved databasen.
+Gamle sessioner beholder personlige markeder og får tip slået fra.
+Aktive omdannelsesordrer beholder deres aftalte udbetaling og ventetid.
 Penge, beholdninger, dag, priser, tilfældighedstilstand og forbindelser bevares.
 Ældre klienter skal også opdateres, før de kan deltage.
 
@@ -83,3 +118,18 @@ Fysisk test med to pc'er, jeres router og Windows Firewall mangler fortsat.
 Prøv først 31 dage: find lobbyen automatisk, handl på én pc, kontrollér eget
 dagtempo, afbryd/genforbind en gæst, genstart værten og afslut begge spillere.
 Ingen chat, spillerhandler, global rangliste eller internetmatchmaking.
+
+MANUEL ACCEPTTEST — AFVENTER TO FYSISKE PC'ER
+[ ] Prøv også Windows-vært/Linux-gæst og Linux-vært/Windows-gæst.
+[ ] Installer samme 1.3.0 på vært og gæst; tillad privat net i Windows Firewall.
+[ ] Find lobbyen automatisk. Kontrollér tip/fælles marked før deltagelse.
+[ ] Spil i forskelligt tempo; sammenlign ved dag 10 og samme markedssted.
+[ ] Bekræft aktiviteter og at modspillerens kontanter/varer/by ikke vises.
+[ ] Afbryd gæstens net, genforbind, og kontrollér at et køb kun blev betalt én gang.
+[ ] Genstart værtens program og genoptag begge spillere.
+[ ] Skift værtens Wi-Fi/IP inden for et gensidigt tilgængeligt lokalnet;
+    kontrollér automatisk genforbindelse og status inden for rimelig tid.
+[ ] Prøv reserveinvitation, hvis broadcast er blokeret, mens TCP er tilladt.
+[ ] Med tip aktiveret: tip en offline gæst; tiden skal først gå, når gæsten spiller.
+[ ] Afslut begge spillere; kontrollér slutscore, DNF og genåbning af resultat.
+Slå ikke Windows Firewall fra under testen.
